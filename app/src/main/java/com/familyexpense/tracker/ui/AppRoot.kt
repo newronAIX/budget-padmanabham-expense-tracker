@@ -28,8 +28,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.PieChart
-import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -41,6 +39,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -367,6 +366,7 @@ private fun MainHomeScreen(
 ) {
     var showExpenseDialog by rememberSaveable { mutableStateOf(false) }
     var showPastExpenses by rememberSaveable { mutableStateOf(false) }
+    var insightsView by rememberSaveable { mutableStateOf(InsightsView.OVERVIEW) }
     val topCategoryIds = remember(state.allExpenses, state.currentUserId) {
         val userId = state.currentUserId ?: return@remember emptyList<String>()
         state.allExpenses
@@ -419,12 +419,14 @@ private fun MainHomeScreen(
 
     Scaffold(
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { showExpenseDialog = true },
-                shape = CircleShape,
-                containerColor = MaterialTheme.colorScheme.primary
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Add expense", tint = Color.White)
+            if (state.selectedTab == AppTab.Home) {
+                FloatingActionButton(
+                    onClick = { showExpenseDialog = true },
+                    shape = CircleShape,
+                    containerColor = MaterialTheme.colorScheme.primary
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Add expense", tint = Color.White)
+                }
             }
         },
         floatingActionButtonPosition = androidx.compose.material3.FabPosition.Center,
@@ -442,7 +444,7 @@ private fun MainHomeScreen(
         }
     ) { padding ->
         when (state.selectedTab) {
-            AppTab.Expenses -> ExpensesTab(
+            AppTab.Home -> ExpensesTab(
                 modifier = Modifier.padding(padding),
                 state = state,
                 onAddCategory = onAddExpenseCategory,
@@ -450,19 +452,11 @@ private fun MainHomeScreen(
                 onDeleteExpense = onDeleteExpense
             )
 
-            AppTab.Metrics -> MetricsTab(
-                modifier = Modifier.padding(padding),
-                state = state
-            )
-
-            AppTab.Charts -> ChartsTab(
-                modifier = Modifier.padding(padding),
-                state = state
-            )
-
-            AppTab.Income -> IncomeTab(
+            AppTab.Insights -> InsightsHubTab(
                 modifier = Modifier.padding(padding),
                 state = state,
+                selectedView = insightsView,
+                onViewChange = { insightsView = it },
                 onAddIncome = onAddIncome,
                 onToggleIncome = onToggleIncome,
                 onUpdateIncome = onUpdateIncome,
@@ -521,6 +515,21 @@ private fun ExpensesTab(
             )
         }
     }
+    val income = state.totalMonthlyIncome.coerceAtLeast(0.0)
+    val expense = state.totalMonthlyExpense.coerceAtLeast(0.0)
+    val spendRatio = if (income <= 0.0) 1f else (expense / income).toFloat().coerceIn(0f, 1f)
+    val budgetStatus = when {
+        income <= 0.0 -> "Set monthly income"
+        expense <= income * 0.85 -> "On track"
+        expense <= income -> "Watch spending"
+        else -> "Over budget"
+    }
+    val budgetStatusColor = when (budgetStatus) {
+        "On track" -> MaterialTheme.colorScheme.primary
+        "Watch spending" -> Color(0xFFB7791F)
+        "Over budget" -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
 
     if (showCategoriesScreen) {
         ExpenseCategoriesScreen(
@@ -563,7 +572,35 @@ private fun ExpensesTab(
             title = family.name,
             subtitle = "Monthly summary",
             incomeValue = formatter.format(state.totalMonthlyIncome),
-            expenseValue = formatter.format(state.totalMonthlyExpense)
+            expenseValue = formatter.format(state.totalMonthlyExpense),
+            extraContent = {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = budgetStatus,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = budgetStatusColor
+                    )
+                    Text(
+                        text = if (income <= 0.0) "0%" else "${((expense / income).coerceAtLeast(0.0) * 100).toInt()}% used",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                LinearProgressIndicator(
+                    progress = { spendRatio },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp),
+                    color = budgetStatusColor,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            }
         )
 
         Row(
@@ -1198,6 +1235,55 @@ private fun PastExpenseRow(expense: Expense, formatter: NumberFormat) {
 }
 
 @Composable
+private fun InsightsHubTab(
+    modifier: Modifier,
+    state: AppUiState,
+    selectedView: InsightsView,
+    onViewChange: (InsightsView) -> Unit,
+    onAddIncome: (String, String?, Double, Int) -> Unit,
+    onToggleIncome: (Income) -> Unit,
+    onUpdateIncome: (Income, String, String?, Double, Int, Boolean) -> Unit,
+    onAddIncomeCategory: (String) -> Unit
+) {
+    Column(
+        modifier = modifier.fillMaxSize()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            InsightsView.values().forEach { view ->
+                val selected = view == selectedView
+                OutlinedButton(
+                    onClick = { onViewChange(view) },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = view.label,
+                        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        }
+
+        when (selectedView) {
+            InsightsView.OVERVIEW -> MetricsTab(modifier = Modifier.weight(1f), state = state)
+            InsightsView.TRENDS -> ChartsTab(modifier = Modifier.weight(1f), state = state)
+            InsightsView.INCOME -> IncomeTab(
+                modifier = Modifier.weight(1f),
+                state = state,
+                onAddIncome = onAddIncome,
+                onToggleIncome = onToggleIncome,
+                onUpdateIncome = onUpdateIncome,
+                onAddIncomeCategory = onAddIncomeCategory
+            )
+        }
+    }
+}
+
+@Composable
 private fun ExpenseRow(expense: Expense, formatter: NumberFormat, onClick: () -> Unit) {
     val colorIndex = expense.id.hashCode().absoluteValue % expensePalette.size
     val background = expensePalette[colorIndex].copy(alpha = 0.18f)
@@ -1775,15 +1861,15 @@ private fun AddExpenseDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Expense name") },
+                    value = amount,
+                    onValueChange = { amount = it },
+                    label = { Text("Amount (quick add)") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
-                    value = amount,
-                    onValueChange = { amount = it },
-                    label = { Text("Amount") },
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Expense name (optional)") },
                     modifier = Modifier.fillMaxWidth()
                 )
 
@@ -1910,11 +1996,13 @@ private fun AddExpenseDialog(
             TextButton(
                 onClick = {
                     val parsed = amount.toDoubleOrNull()
-                    if (name.isNotBlank() && parsed != null && parsed > 0.0) {
+                    if (parsed != null && parsed > 0.0) {
                         val categoryCandidate = categoryQuery.trim()
                         val exactCategoryId = categories.firstOrNull { category ->
                             category.name.equals(categoryCandidate, ignoreCase = true)
                         }?.id
+                        val finalName = name.trim()
+                            .ifBlank { categoryCandidate.ifBlank { "Expense" } }
 
                         if (categoryCandidate.isNotBlank() && exactCategoryId == null && selectedCategoryId == null) {
                             showCreateCategoryConfirm = true
@@ -1922,7 +2010,7 @@ private fun AddExpenseDialog(
                         }
 
                         onSubmit(
-                            name,
+                            finalName,
                             exactCategoryId ?: selectedCategoryId,
                             parsed,
                             notes.takeIf { it.isNotBlank() }
@@ -1992,9 +2080,11 @@ private fun AddExpenseDialog(
                 TextButton(
                     onClick = {
                         val parsed = amount.toDoubleOrNull()
-                        if (name.isNotBlank() && parsed != null && parsed > 0.0) {
+                        if (parsed != null && parsed > 0.0) {
+                            val finalName = name.trim()
+                                .ifBlank { categoryQuery.trim().ifBlank { "Expense" } }
                             onSubmit(
-                                name,
+                                finalName,
                                 null,
                                 parsed,
                                 notes.takeIf { it.isNotBlank() }
@@ -2315,6 +2405,12 @@ private data class MonthSummary(
     val incomeCategoryTotals: List<CategorySpend>
 )
 
+private enum class InsightsView(val label: String) {
+    OVERVIEW("Overview"),
+    TRENDS("Trends"),
+    INCOME("Income")
+}
+
 private enum class ExpenseSortOption(val label: String) {
     DATE("Date"),
     CATEGORY("Category"),
@@ -2322,10 +2418,8 @@ private enum class ExpenseSortOption(val label: String) {
 }
 
 private val tabMeta = listOf(
-    TabMeta(AppTab.Expenses, Icons.Default.Home),
-    TabMeta(AppTab.Metrics, Icons.Default.BarChart),
-    TabMeta(AppTab.Charts, Icons.Default.PieChart),
-    TabMeta(AppTab.Income, Icons.Default.Savings),
+    TabMeta(AppTab.Home, Icons.Default.Home),
+    TabMeta(AppTab.Insights, Icons.Default.BarChart),
     TabMeta(AppTab.Account, Icons.Default.AccountCircle)
 )
 

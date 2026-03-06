@@ -92,10 +92,8 @@ data class IncomeDraft(
 )
 
 enum class AppTab(val title: String) {
-    Expenses("Expenses"),
-    Metrics("Metrics"),
-    Charts("Charts"),
-    Income("Income"),
+    Home("Home"),
+    Insights("Insights"),
     Account("Account")
 }
 

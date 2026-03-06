@@ -323,7 +323,7 @@ data class AppUiState(
     val isAuthenticated: Boolean = false,
     val needsFamilySetup: Boolean = false,
     val currentUserId: String? = null,
-    val selectedTab: AppTab = AppTab.Expenses,
+    val selectedTab: AppTab = AppTab.Home,
     val family: Family? = null,
     val members: List<FamilyMember> = emptyList(),
     val categories: List<Category> = emptyList(),
