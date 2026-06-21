@@ -3,6 +3,14 @@
   const COLORS = ["#1B4332", "#F5B700", "#EE6055", "#3A7CA5", "#7D5BA6", "#2A9D8F", "#9B5D3A", "#6C757D"];
   const EXPENSE_DEFAULTS = ["Groceries", "Milk", "Medicine", "Education", "Fuel", "Temple", "Dining"];
   const INCOME_DEFAULTS = ["Salary", "Rent", "Pension", "Business"];
+  const QUICK_EXPENSES = [
+    ["Milk", "Milk"],
+    ["Vegetables", "Groceries"],
+    ["Medicine", "Medicine"],
+    ["Petrol", "Fuel"],
+    ["School fees", "Education"],
+    ["Temple", "Temple"]
+  ];
 
   const config = window.BUDGET_CONFIG || {};
   const params = new URLSearchParams(window.location.search);
@@ -377,6 +385,10 @@
     return state.categories.find((category) => category.id === id)?.color || fallback || COLORS[0];
   }
 
+  function categoryByName(scope, name) {
+    return state.categories.find((category) => category.scope === scope && comparableText(category.name) === comparableText(name));
+  }
+
   function personName(id) {
     return state.people.find((person) => person.id === id)?.display_name || "Family";
   }
@@ -548,14 +560,16 @@
     const items = [
       ["dashboard", "Home"],
       ["expenses", "Expenses"],
-      ["insights", "Insights"],
+      ["add", "+ Add"],
       ["income", "Income"],
       ["family", "Family"]
     ];
     return `
       <nav class="bottom-nav">
-        ${items.map(([id, label]) => `<button class="${state.tab === id ? "active" : ""}" data-tab="${id}">${label}</button>`).join("")}
-        <button class="floating-add" data-modal="expense">+</button>
+        ${items.map(([id, label]) => id === "add"
+          ? `<button class="nav-add" data-modal="expense">${label}</button>`
+          : `<button class="${state.tab === id ? "active" : ""}" data-tab="${id}">${label}</button>`
+        ).join("")}
       </nav>
     `;
   }
@@ -568,31 +582,34 @@
     const used = budget ? Math.min(100, Math.round((spend / budget) * 100)) : 0;
     const recent = state.expenses.slice(0, 5);
     const memberTotals = totalsBy(monthExpenses(), (e) => e.person_id, (e) => personName(e.person_id), (e) => personColor(e.person_id));
+    const currentPerson = currentUserPerson();
 
     return `
-      <section class="hero card">
+      <section class="quick-entry card">
         <div>
-          <span class="secure-pill">Shared data encrypted</span>
-          <h2>Dashboard</h2>
+          <span class="secure-pill">Today - ${niceDate(todayKey())}</span>
+          <h2>Add today's expense</h2>
+          <p>${currentPerson ? `Default person: ${escapeHtml(currentPerson.display_name)}` : "Amount, item, person, save."}</p>
         </div>
-        <span>Currency: ${escapeHtml(state.family.currency_code)}</span>
+        <button class="primary entry-button" data-modal="expense">+ Add expense</button>
       </section>
-      <section class="metric-grid">
-        ${metric("Total income", money(income), "+ active monthly")}
-        ${metric("Total expenses", money(spend), `${used || 0}% of budget used`)}
-        ${metric("Savings", money(savings), savings >= 0 ? "Auto-invested view" : "Needs attention")}
-        ${metric("Budget status", budget ? `${used}%` : "Set budget", budget ? money(budget) : "No cap")}
+      <section class="metric-grid simple-metrics">
+        ${metric("Spent this month", money(spend), `${monthExpenses().length} entries`)}
+        ${metric("Money left", money(savings), income ? "Income minus expenses" : "Add income to track balance")}
       </section>
       <section class="dashboard-grid">
         <div class="card panel">
           <div class="section-head">
-            <h2>Recent Activity</h2>
+            <h2>Recent expenses</h2>
             <button class="text-button" data-tab="expenses">View all</button>
           </div>
-          ${recent.length ? recent.map(expenseRow).join("") : emptyState("No expenses yet", "Tap the plus button and record the first expense.")}
+          ${recent.length ? recent.map(expenseRow).join("") : emptyState("No expenses yet", "Tap Add expense and record the first one.")}
         </div>
         <aside class="card panel">
-          <h2>Budget Cap</h2>
+          <h2>Monthly picture</h2>
+          <div class="summary-line"><span>Income</span><strong>${money(income)}</strong></div>
+          <div class="summary-line"><span>Expenses</span><strong>${money(spend)}</strong></div>
+          <div class="summary-line"><span>Budget used</span><strong>${budget ? `${used}%` : "Not set"}</strong></div>
           ${budgetRows()}
           <button class="secondary wide" data-tab="categories">Manage categories</button>
           <div class="family-card">
@@ -868,9 +885,15 @@
     const selectedPersonId = defaultExpensePersonId(expense);
     return `
       <form data-form="expense" data-id="${id || ""}">
-        <label class="field">Amount<input class="input" name="amount" type="number" inputmode="decimal" min="1" step="1" value="${escapeHtml(expense?.amount || "")}" placeholder="Example: 250" required></label>
-        <label class="field">What was it for?<input class="input" name="title" value="${escapeHtml(expense?.title || "")}" placeholder="Milk, vegetables, medicine" required></label>
-        <label class="field">Who spent it?<select class="input" name="person_id" required>${state.people.map((p) => `<option value="${p.id}" ${selectedPersonId === p.id ? "selected" : ""}>${escapeHtml(p.display_name)}</option>`).join("")}</select></label>
+        <label class="field amount-field">Amount spent<input class="input amount-input" name="amount" type="number" inputmode="decimal" min="1" step="1" value="${escapeHtml(expense?.amount || "")}" placeholder="250" required></label>
+        <div class="quick-picks" aria-label="Common expenses">
+          ${QUICK_EXPENSES.map(([title, categoryName]) => {
+            const category = categoryByName("EXPENSE", categoryName);
+            return `<button type="button" data-quick-expense data-title="${escapeHtml(title)}" data-category-id="${escapeHtml(category?.id || "")}">${escapeHtml(title)}</button>`;
+          }).join("")}
+        </div>
+        <label class="field">Expense name<input class="input" name="title" value="${escapeHtml(expense?.title || "")}" placeholder="Milk, vegetables, medicine" required></label>
+        <label class="field">Person who spent<select class="input" name="person_id" required>${state.people.map((p) => `<option value="${p.id}" ${selectedPersonId === p.id ? "selected" : ""}>${escapeHtml(p.display_name)}</option>`).join("")}</select></label>
         <label class="field">Category<select class="input" name="category_id">${activeExpenseCategories().map((c) => `<option value="${c.id}" ${expense?.category_id === c.id ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select></label>
         <label class="field">Date<input class="input" name="spent_on" type="date" value="${dateValue}" required><small>Today is loaded automatically. Change only if needed.</small></label>
         <label class="field">Notes<textarea class="textarea" name="note" placeholder="Optional">${escapeHtml(expense?.note || "")}</textarea></label>
@@ -960,6 +983,15 @@
     document.querySelectorAll("[data-edit-category]").forEach((button) => button.addEventListener("click", () => openModal("category", button.dataset.editCategory)));
     document.querySelectorAll("[data-delete-category]").forEach((button) => button.addEventListener("click", run(() => deleteCategory(button.dataset.deleteCategory))));
     document.querySelectorAll("[data-edit-person]").forEach((button) => button.addEventListener("click", () => openModal("person", button.dataset.editPerson)));
+    document.querySelectorAll("[data-quick-expense]").forEach((button) => button.addEventListener("click", () => {
+      const form = button.closest("form");
+      const titleInput = form?.querySelector("input[name='title']");
+      const categorySelect = form?.querySelector("select[name='category_id']");
+      const amountInput = form?.querySelector("input[name='amount']");
+      if (titleInput) titleInput.value = button.dataset.title || "";
+      if (categorySelect && button.dataset.categoryId) categorySelect.value = button.dataset.categoryId;
+      amountInput?.focus();
+    }));
   }
 
   function bindForm(name, handler) {
