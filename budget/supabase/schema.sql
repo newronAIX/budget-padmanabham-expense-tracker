@@ -561,6 +561,116 @@ $$;
 revoke all on function public.leave_budget_family(uuid) from public;
 grant execute on function public.leave_budget_family(uuid) to authenticated;
 
+create or replace function budget_private.rotate_budget_family_invite(target_family uuid)
+returns text
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  candidate text;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  if not exists (
+    select 1 from public.budget_families
+    where id = target_family and owner_id = auth.uid()
+  ) then
+    raise exception 'Only the family moderator can rotate the invite code';
+  end if;
+
+  loop
+    candidate := 'BUDGET-' || upper(substr(encode(extensions.gen_random_bytes(6), 'hex'), 1, 8));
+    exit when not exists (select 1 from public.budget_families where invite_code = candidate);
+  end loop;
+
+  update public.budget_families
+  set invite_code = candidate
+  where id = target_family;
+
+  return candidate;
+end;
+$$;
+
+revoke all on function budget_private.rotate_budget_family_invite(uuid) from public;
+grant execute on function budget_private.rotate_budget_family_invite(uuid) to authenticated;
+
+create or replace function public.rotate_budget_family_invite(target_family uuid)
+returns text
+language sql
+security invoker
+set search_path = ''
+as $$
+  select budget_private.rotate_budget_family_invite(target_family);
+$$;
+
+revoke all on function public.rotate_budget_family_invite(uuid) from public;
+grant execute on function public.rotate_budget_family_invite(uuid) to authenticated;
+
+create or replace function budget_private.remove_budget_family_member(target_family uuid, target_user uuid)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  if not exists (
+    select 1 from public.budget_families
+    where id = target_family and owner_id = auth.uid()
+  ) then
+    raise exception 'Only the family moderator can remove members';
+  end if;
+
+  if target_user = auth.uid() then
+    raise exception 'Use Leave family to remove yourself';
+  end if;
+
+  if exists (
+    select 1 from public.budget_families
+    where id = target_family and owner_id = target_user
+  ) then
+    raise exception 'The current moderator cannot be removed';
+  end if;
+
+  delete from public.budget_family_users
+  where family_id = target_family
+    and user_id = target_user;
+
+  update public.budget_people
+  set linked_user_id = null
+  where family_id = target_family
+    and linked_user_id = target_user;
+
+  update public.budget_join_requests
+  set status = 'REJECTED',
+      reviewed_by = auth.uid(),
+      reviewed_at = now()
+  where family_id = target_family
+    and user_id = target_user;
+end;
+$$;
+
+revoke all on function budget_private.remove_budget_family_member(uuid, uuid) from public;
+grant execute on function budget_private.remove_budget_family_member(uuid, uuid) to authenticated;
+
+create or replace function public.remove_budget_family_member(target_family uuid, target_user uuid)
+returns void
+language sql
+security invoker
+set search_path = ''
+as $$
+  select budget_private.remove_budget_family_member(target_family, target_user);
+$$;
+
+revoke all on function public.remove_budget_family_member(uuid, uuid) from public;
+grant execute on function public.remove_budget_family_member(uuid, uuid) to authenticated;
+
 grant select, insert, update on public.budget_profiles to authenticated;
 grant select, insert, update, delete on public.budget_families to authenticated;
 grant select, insert, update, delete on public.budget_family_users to authenticated;

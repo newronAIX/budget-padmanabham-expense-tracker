@@ -1079,7 +1079,8 @@
           ${state.people.map((person) => `
             <article class="item">
               <span class="avatar">${personInitial(person.display_name)}</span>
-              <div class="item-main"><strong>${escapeHtml(person.display_name)}</strong><span>${person.linked_user_id ? "Signed in member" : "Past expense person"}</span></div>
+              <div class="item-main"><strong>${escapeHtml(person.display_name)}</strong><span>${person.linked_user_id ? (person.linked_user_id === state.family.owner_id ? "Moderator" : "Signed in member") : "Past expense person"}</span></div>
+              ${isOwner && person.linked_user_id && person.linked_user_id !== state.family.owner_id ? `<div class="item-actions"><button class="danger" data-remove-member="${person.linked_user_id}" data-member-name="${escapeHtml(person.display_name)}">Remove</button></div>` : ""}
             </article>
           `).join("")}
         </div>
@@ -1097,9 +1098,12 @@
           </div>
           <div class="invite-actions">
             <button class="secondary wide" data-copy-invite="${escapeHtml(inviteCode)}">Copy code</button>
-            ${isOwner ? `<button class="${locked ? "primary" : "danger"} wide" data-action="toggle-family-lock">${locked ? "Unlock joining" : "Lock joining"}</button>` : ""}
+            ${isOwner ? `
+              <button class="secondary wide" data-action="rotate-invite">Rotate invite code</button>
+              <button class="${locked ? "primary" : "danger"} wide" data-action="toggle-family-lock">${locked ? "Unlock joining" : "Lock joining"}</button>
+            ` : ""}
           </div>
-          <p class="muted invite-help">${isOwner ? "You created this family, so only you can lock or unlock new joining." : "You can share the code. Only the family creator can lock or unlock joining."}</p>
+          <p class="muted invite-help">${isOwner ? "Rotate if the old code was shared too widely. Old code stops working." : "You can share the code. Only the moderator can rotate, lock, or unlock joining."}</p>
           ${isOwner ? `
             <hr>
             <h2>Join requests</h2>
@@ -1282,9 +1286,11 @@
     document.querySelectorAll("[data-delete-category]").forEach((button) => button.addEventListener("click", run(() => deleteCategory(button.dataset.deleteCategory))));
     document.querySelectorAll("[data-edit-person]").forEach((button) => button.addEventListener("click", () => openModal("person", button.dataset.editPerson)));
     document.querySelector("[data-action='toggle-family-lock']")?.addEventListener("click", run(toggleFamilyLock));
+    document.querySelector("[data-action='rotate-invite']")?.addEventListener("click", run(rotateInviteCode));
     document.querySelector("[data-action='leave-family']")?.addEventListener("click", run(leaveFamily));
     document.querySelector("[data-copy-invite]")?.addEventListener("click", run(copyInviteCode));
     document.querySelectorAll("[data-review-request]").forEach((button) => button.addEventListener("click", run(() => reviewJoinRequest(button.dataset.reviewRequest, button.dataset.decision))));
+    document.querySelectorAll("[data-remove-member]").forEach((button) => button.addEventListener("click", run(() => removeFamilyMember(button.dataset.removeMember, button.dataset.memberName))));
     document.querySelectorAll("[data-insight-tab]").forEach((button) => button.addEventListener("click", () => {
       state.insightTab = button.dataset.insightTab;
       render();
@@ -1645,6 +1651,43 @@
     const { error } = await client.rpc("leave_budget_family", { target_family: familyId });
     if (error) throw error;
     localStorage.removeItem(keyStorageKey(familyId));
+    await load();
+  }
+
+  async function rotateInviteCode() {
+    if (state.membership?.role !== "OWNER") throw new Error("Only the family moderator can rotate the invite code.");
+    if (!window.confirm("Rotate the invite code? The old code will stop working immediately.")) return;
+    if (state.demo) {
+      const nextCode = createInviteCode();
+      state.family = { ...state.family, invite_code: nextCode };
+      writeDemo();
+      render();
+      window.alert(`New invite code: ${nextCode}`);
+      return;
+    }
+    const { data, error } = await client.rpc("rotate_budget_family_invite", {
+      target_family: state.family.id
+    });
+    if (error) throw error;
+    await load();
+    window.alert(`New invite code: ${data}`);
+  }
+
+  async function removeFamilyMember(userId, memberName) {
+    if (state.membership?.role !== "OWNER") throw new Error("Only the family moderator can remove members.");
+    if (!userId) throw new Error("This person is not a signed-in member.");
+    if (!window.confirm(`Remove ${memberName || "this member"} from the family? They will lose access immediately.`)) return;
+    if (state.demo) {
+      state.people = state.people.map((person) => person.linked_user_id === userId ? { ...person, linked_user_id: null } : person);
+      writeDemo();
+      render();
+      return;
+    }
+    const { error } = await client.rpc("remove_budget_family_member", {
+      target_family: state.family.id,
+      target_user: userId
+    });
+    if (error) throw error;
     await load();
   }
 
