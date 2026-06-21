@@ -941,7 +941,24 @@
   }
 
   function cleanText(value, fallback = "") {
-    return String(value ?? fallback).trim().replace(/\s+/g, " ");
+    return String(value ?? fallback).normalize("NFC").trim().replace(/\s+/gu, " ");
+  }
+
+  function comparableText(value) {
+    return cleanText(value).toLocaleLowerCase("en-IN");
+  }
+
+  function findCategoryByName(scope, name, excludeId = "") {
+    const comparableName = comparableText(name);
+    return state.categories.find((category) =>
+      category.scope === scope &&
+      category.id !== excludeId &&
+      comparableText(category.name) === comparableName
+    );
+  }
+
+  function isCategoryNameConflict(error) {
+    return error?.code === "23505" && String(error.message || error.details || "").includes("budget_categories_family_scope_name_uq");
   }
 
   function requireText(value, label, maxLength) {
@@ -1153,6 +1170,14 @@
       created_by: state.user.id
     };
     if (!/^#[0-9a-f]{6}$/i.test(payload.color)) throw new Error("Please choose a valid category color.");
+    const existing = findCategoryByName(payload.scope, payload.name, id);
+    if (existing) {
+      if (id) throw new Error(`"${payload.name}" already exists in ${payload.scope === "EXPENSE" ? "expense" : "income"} categories.`);
+      state.scope = existing.scope;
+      state.modal = null;
+      render();
+      return;
+    }
 
     if (state.demo) {
       if (id) state.categories = state.categories.map((category) => category.id === id ? { ...category, ...payload } : category);
@@ -1167,7 +1192,15 @@
       ? client.from("budget_categories").update(payload).eq("id", id)
       : client.from("budget_categories").insert(payload);
     const { error } = await query;
-    if (error) throw error;
+    if (error) {
+      if (isCategoryNameConflict(error)) {
+        if (id) throw new Error(`"${payload.name}" already exists in ${payload.scope === "EXPENSE" ? "expense" : "income"} categories.`);
+        state.modal = null;
+        await load();
+        return;
+      }
+      throw error;
+    }
     state.modal = null;
     await load();
   }
@@ -1259,7 +1292,11 @@
   }
 
   function showError(error) {
-    state.error = error.message || "Something went wrong.";
+    if (isCategoryNameConflict(error)) {
+      state.error = "This category already exists. Please choose it from the list or use a different name.";
+    } else {
+      state.error = error.message || "Something went wrong.";
+    }
     render();
   }
 

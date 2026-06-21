@@ -58,8 +58,9 @@ create table if not exists public.budget_categories (
   constraint budget_categories_scope_check check (scope in ('EXPENSE', 'INCOME'))
 );
 
-create unique index if not exists budget_categories_family_scope_name_uq
-on public.budget_categories (family_id, scope, lower(name));
+drop index if exists public.budget_categories_family_scope_name_uq;
+create unique index budget_categories_family_scope_name_uq
+on public.budget_categories (family_id, scope, lower(btrim(name)));
 
 create unique index if not exists budget_people_family_linked_user_uq
 on public.budget_people (family_id, linked_user_id)
