@@ -13,6 +13,7 @@
   const initialModal = ["expense", "income", "category", "person"].includes(params.get("modal"))
     ? { type: params.get("modal") }
     : null;
+  const initialMonth = /^\d{4}-\d{2}$/.test(params.get("month") || "") ? params.get("month") : null;
   const hasSupabase = Boolean(config.SUPABASE_URL && config.SUPABASE_PUBLISHABLE_KEY && window.supabase);
   const client = hasSupabase
     ? window.supabase.createClient(config.SUPABASE_URL, config.SUPABASE_PUBLISHABLE_KEY, {
@@ -36,6 +37,7 @@
     tab: initialTab,
     modal: initialModal,
     sort: "date",
+    selectedMonth: initialMonth,
     scope: "EXPENSE",
     busy: false,
     checkingSession: hasSupabase && !previewMode,
@@ -54,6 +56,7 @@
 
   const monthKey = (dateKey) => (dateKey || todayKey()).slice(0, 7);
   const currentMonth = () => monthKey(todayKey());
+  const selectedMonth = () => state.selectedMonth || currentMonth();
 
   const money = (value) =>
     new Intl.NumberFormat("en-IN", {
@@ -66,6 +69,18 @@
     const date = new Date(`${dateKey || todayKey()}T00:00:00`);
     return new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric" }).format(date);
   };
+
+  const monthLabel = (key) => {
+    const date = new Date(`${key || currentMonth()}-01T00:00:00`);
+    return new Intl.DateTimeFormat("en-IN", { month: "long", year: "numeric" }).format(date);
+  };
+
+  function shiftMonth(key, delta) {
+    const date = new Date(`${key || currentMonth()}-01T00:00:00`);
+    date.setMonth(date.getMonth() + delta);
+    date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+    return date.toISOString().slice(0, 7);
+  }
 
   function readDemo() {
     if (state.preview) return null;
@@ -357,8 +372,32 @@
   }
 
   function monthExpenses() {
-    const key = currentMonth();
+    return expensesForMonth(currentMonth());
+  }
+
+  function expensesForMonth(key) {
     return state.expenses.filter((expense) => monthKey(expense.spent_on) === key);
+  }
+
+  function spendForMonth(key) {
+    return expensesForMonth(key).reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+  }
+
+  function availableMonthKeys() {
+    const months = new Set([currentMonth(), selectedMonth()]);
+    state.expenses.forEach((expense) => months.add(monthKey(expense.spent_on)));
+    return [...months].filter(Boolean).sort((a, b) => b.localeCompare(a));
+  }
+
+  function previousMonthSummaries(limit = 6) {
+    return availableMonthKeys()
+      .filter((key) => key < currentMonth())
+      .map((key) => {
+        const rows = expensesForMonth(key);
+        return { key, total: rows.reduce((sum, expense) => sum + Number(expense.amount || 0), 0), count: rows.length };
+      })
+      .filter((row) => row.count > 0)
+      .slice(0, limit);
   }
 
   function monthlyIncome() {
@@ -366,7 +405,7 @@
   }
 
   function monthlySpend() {
-    return monthExpenses().reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+    return spendForMonth(currentMonth());
   }
 
   function categoryName(id) {
@@ -596,14 +635,15 @@
     const savings = income - spend;
     const budget = Number(state.family.monthly_budget || 0);
     const used = budget ? Math.min(100, Math.round((spend / budget) * 100)) : 0;
-    const recent = state.expenses.slice(0, 5);
+    const recent = monthExpenses().slice(0, 5);
     const memberTotals = totalsBy(monthExpenses(), (e) => e.person_id, (e) => personName(e.person_id), (e) => personColor(e.person_id));
     const currentPerson = currentUserPerson();
+    const archives = previousMonthSummaries(4);
 
     return `
       <section class="quick-entry card">
         <div>
-          <span class="secure-pill">Today - ${niceDate(todayKey())}</span>
+          <span class="secure-pill">Current month - ${monthLabel(currentMonth())}</span>
           <h2>Add today's expense</h2>
           <p>${currentPerson ? `Default person: ${escapeHtml(currentPerson.display_name)}` : "Amount, item, person, save."}</p>
         </div>
@@ -626,8 +666,18 @@
           <div class="summary-line"><span>Income</span><strong>${money(income)}</strong></div>
           <div class="summary-line"><span>Expenses</span><strong>${money(spend)}</strong></div>
           <div class="summary-line"><span>Budget used</span><strong>${budget ? `${used}%` : "Not set"}</strong></div>
+          <p class="month-reset-note">This view starts fresh automatically on the 1st. Older expenses stay in Previous months.</p>
           ${budgetRows()}
           <button class="secondary wide" data-tab="categories">Manage categories</button>
+          <div class="archive-card">
+            <strong>Previous months</strong>
+            ${archives.length ? archives.map((row) => `
+              <button data-month-jump="${row.key}">
+                <span>${monthLabel(row.key)} · ${row.count} entries</span>
+                <strong>${money(row.total)}</strong>
+              </button>
+            `).join("") : `<p>No previous months yet.</p>`}
+          </div>
           <div class="family-card">
             <strong>Family Contributions</strong>
             ${memberTotals.length ? miniBars(memberTotals) : "<p>No entries this month.</p>"}
@@ -653,13 +703,27 @@
   }
 
   function expensesScreen() {
-    const list = sortedExpenses();
+    const month = selectedMonth();
+    const list = sortedExpenses(month);
+    const total = spendForMonth(month);
+    const isCurrent = month === currentMonth();
     return `
       <section class="card panel">
         <div class="section-head">
-          <h2>Expenses</h2>
+          <div>
+            <h2>${isCurrent ? "This month's expenses" : "Previous month expenses"}</h2>
+            <p class="section-subtitle">${monthLabel(month)} · ${list.length} entries · ${money(total)}</p>
+          </div>
           <button class="primary compact" data-modal="expense">Add expense</button>
         </div>
+        <div class="month-switcher">
+          <button class="secondary" data-month-shift="-1">Previous</button>
+          <select class="input" data-month-select>
+            ${availableMonthKeys().map((key) => `<option value="${key}" ${month === key ? "selected" : ""}>${key === currentMonth() ? "Current - " : ""}${monthLabel(key)}</option>`).join("")}
+          </select>
+          <button class="secondary" data-month-current ${isCurrent ? "disabled" : ""}>This month</button>
+        </div>
+        <div class="month-note">${isCurrent ? "New month starts fresh automatically on the 1st." : "These entries are kept as family history and do not mix with the current month."}</div>
         <div class="toolbar">
           <select class="input" data-sort>
             <option value="date" ${state.sort === "date" ? "selected" : ""}>Sort by date</option>
@@ -667,13 +731,13 @@
             <option value="category" ${state.sort === "category" ? "selected" : ""}>Sort by category</option>
           </select>
         </div>
-        ${list.length ? list.map(expenseRow).join("") : emptyState("No expenses yet", "Use Add expense to start.")}
+        ${list.length ? list.map(expenseRow).join("") : emptyState(isCurrent ? "No expenses this month" : "No expenses in this month", isCurrent ? "Use Add expense to start this month's ledger." : "Choose another month to see older entries.")}
       </section>
     `;
   }
 
-  function sortedExpenses() {
-    const list = [...state.expenses];
+  function sortedExpenses(month = selectedMonth()) {
+    const list = [...expensesForMonth(month)];
     if (state.sort === "person") return list.sort((a, b) => personName(a.person_id).localeCompare(personName(b.person_id)));
     if (state.sort === "category") return list.sort((a, b) => categoryName(a.category_id).localeCompare(categoryName(b.category_id)));
     return list.sort((a, b) => String(b.spent_on).localeCompare(String(a.spent_on)));
@@ -977,6 +1041,23 @@
       state.sort = event.target.value;
       render();
     });
+    document.querySelector("[data-month-select]")?.addEventListener("change", (event) => {
+      state.selectedMonth = event.target.value;
+      render();
+    });
+    document.querySelector("[data-month-current]")?.addEventListener("click", () => {
+      state.selectedMonth = currentMonth();
+      render();
+    });
+    document.querySelectorAll("[data-month-shift]").forEach((button) => button.addEventListener("click", () => {
+      state.selectedMonth = shiftMonth(selectedMonth(), Number(button.dataset.monthShift || 0));
+      render();
+    }));
+    document.querySelectorAll("[data-month-jump]").forEach((button) => button.addEventListener("click", () => {
+      state.selectedMonth = button.dataset.monthJump;
+      state.tab = "expenses";
+      render();
+    }));
     document.querySelectorAll("[data-scope]").forEach((button) => button.addEventListener("click", () => {
       state.scope = button.dataset.scope;
       render();
