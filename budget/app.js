@@ -3,14 +3,6 @@
   const COLORS = ["#1B4332", "#F5B700", "#EE6055", "#3A7CA5", "#7D5BA6", "#2A9D8F", "#9B5D3A", "#6C757D"];
   const EXPENSE_DEFAULTS = ["Groceries", "Milk", "Medicine", "Education", "Fuel", "Temple", "Dining"];
   const INCOME_DEFAULTS = ["Salary", "Rent", "Pension", "Business"];
-  const QUICK_EXPENSES = [
-    ["Milk", "Milk"],
-    ["Vegetables", "Groceries"],
-    ["Medicine", "Medicine"],
-    ["Petrol", "Fuel"],
-    ["School fees", "Education"],
-    ["Temple", "Temple"]
-  ];
 
   const config = window.BUDGET_CONFIG || {};
   const params = new URLSearchParams(window.location.search);
@@ -385,8 +377,32 @@
     return state.categories.find((category) => category.id === id)?.color || fallback || COLORS[0];
   }
 
-  function categoryByName(scope, name) {
-    return state.categories.find((category) => category.scope === scope && comparableText(category.name) === comparableText(name));
+  function topExpenseCategories(limit = 6) {
+    const categories = activeExpenseCategories();
+    const byId = new Map(categories.map((category) => [category.id, category]));
+    const scores = new Map();
+    const now = new Date(`${todayKey()}T00:00:00`);
+
+    state.expenses.forEach((expense) => {
+      if (!expense.category_id || !byId.has(expense.category_id)) return;
+      const spentOn = new Date(`${expense.spent_on || todayKey()}T00:00:00`);
+      const ageDays = Math.max(0, Math.round((now - spentOn) / 86400000));
+      const recencyBoost = ageDays <= 30 ? (30 - ageDays) / 30 : 0;
+      const previous = scores.get(expense.category_id) || { count: 0, score: 0, lastUsed: "" };
+      previous.count += 1;
+      previous.score += 1 + recencyBoost;
+      previous.lastUsed = previous.lastUsed > expense.spent_on ? previous.lastUsed : expense.spent_on;
+      scores.set(expense.category_id, previous);
+    });
+
+    const ranked = [...scores.entries()]
+      .map(([id, stats]) => ({ ...byId.get(id), ...stats }))
+      .sort((a, b) => b.score - a.score || String(b.lastUsed).localeCompare(String(a.lastUsed)) || a.name.localeCompare(b.name));
+    const selected = ranked.slice(0, limit);
+    categories.forEach((category) => {
+      if (selected.length < limit && !selected.some((item) => item.id === category.id)) selected.push(category);
+    });
+    return selected.slice(0, limit);
   }
 
   function personName(id) {
@@ -883,20 +899,18 @@
     const expense = state.expenses.find((item) => item.id === id);
     const dateValue = expense?.spent_on || todayKey();
     const selectedPersonId = defaultExpensePersonId(expense);
+    const categoryShortcuts = topExpenseCategories(6);
     return `
       <form data-form="expense" data-id="${id || ""}">
         <label class="field amount-field">Amount spent<input class="input amount-input" name="amount" type="number" inputmode="decimal" min="1" step="1" value="${escapeHtml(expense?.amount || "")}" placeholder="250" required></label>
-        <div class="quick-picks" aria-label="Common expenses">
-          ${QUICK_EXPENSES.map(([title, categoryName]) => {
-            const category = categoryByName("EXPENSE", categoryName);
-            return `<button type="button" data-quick-expense data-title="${escapeHtml(title)}" data-category-id="${escapeHtml(category?.id || "")}">${escapeHtml(title)}</button>`;
-          }).join("")}
-        </div>
-        <label class="field">Expense name<input class="input" name="title" value="${escapeHtml(expense?.title || "")}" placeholder="Milk, vegetables, medicine" required></label>
-        <label class="field">Person who spent<select class="input" name="person_id" required>${state.people.map((p) => `<option value="${p.id}" ${selectedPersonId === p.id ? "selected" : ""}>${escapeHtml(p.display_name)}</option>`).join("")}</select></label>
-        <label class="field">Category<select class="input" name="category_id">${activeExpenseCategories().map((c) => `<option value="${c.id}" ${expense?.category_id === c.id ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select></label>
-        <label class="field">Date<input class="input" name="spent_on" type="date" value="${dateValue}" required><small>Today is loaded automatically. Change only if needed.</small></label>
-        <label class="field">Notes<textarea class="textarea" name="note" placeholder="Optional">${escapeHtml(expense?.note || "")}</textarea></label>
+        ${categoryShortcuts.length ? `<div class="shortcut-group"><span>Often used categories</span><div class="quick-picks" aria-label="Frequently used categories">
+          ${categoryShortcuts.map((category) => `<button type="button" class="${expense?.category_id === category.id ? "selected" : ""}" data-category-shortcut="${escapeHtml(category.id)}" style="--chip-color:${escapeHtml(category.color || COLORS[0])}">${escapeHtml(category.name)}</button>`).join("")}
+        </div></div>` : ""}
+        <label class="field title-field">Expense name<input class="input" name="title" value="${escapeHtml(expense?.title || "")}" placeholder="Milk, vegetables, medicine" required></label>
+        <label class="field person-field">Person who spent<select class="input" name="person_id" required>${state.people.map((p) => `<option value="${p.id}" ${selectedPersonId === p.id ? "selected" : ""}>${escapeHtml(p.display_name)}</option>`).join("")}</select></label>
+        <label class="field category-field">Category<select class="input" name="category_id">${activeExpenseCategories().map((c) => `<option value="${c.id}" ${expense?.category_id === c.id ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select></label>
+        <label class="field date-field">Date<input class="input" name="spent_on" type="date" value="${dateValue}" required><small>Today is loaded automatically. Change only if needed.</small></label>
+        <label class="field notes-field">Notes<textarea class="textarea" name="note" placeholder="Optional">${escapeHtml(expense?.note || "")}</textarea></label>
         <div class="modal-actions">
           ${id ? `<button class="danger" type="button" data-delete-expense="${id}">Delete</button>` : ""}
           <button class="primary" type="submit">Save expense</button>
@@ -983,13 +997,12 @@
     document.querySelectorAll("[data-edit-category]").forEach((button) => button.addEventListener("click", () => openModal("category", button.dataset.editCategory)));
     document.querySelectorAll("[data-delete-category]").forEach((button) => button.addEventListener("click", run(() => deleteCategory(button.dataset.deleteCategory))));
     document.querySelectorAll("[data-edit-person]").forEach((button) => button.addEventListener("click", () => openModal("person", button.dataset.editPerson)));
-    document.querySelectorAll("[data-quick-expense]").forEach((button) => button.addEventListener("click", () => {
+    document.querySelectorAll("[data-category-shortcut]").forEach((button) => button.addEventListener("click", () => {
       const form = button.closest("form");
-      const titleInput = form?.querySelector("input[name='title']");
       const categorySelect = form?.querySelector("select[name='category_id']");
       const amountInput = form?.querySelector("input[name='amount']");
-      if (titleInput) titleInput.value = button.dataset.title || "";
-      if (categorySelect && button.dataset.categoryId) categorySelect.value = button.dataset.categoryId;
+      if (categorySelect) categorySelect.value = button.dataset.categoryShortcut || "";
+      form?.querySelectorAll("[data-category-shortcut]").forEach((item) => item.classList.toggle("selected", item === button));
       amountInput?.focus();
     }));
   }

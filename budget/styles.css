@@ -405,10 +405,39 @@ button {
   gap: 7px;
   margin-bottom: 14px;
   font-weight: 850;
+  --field-accent: var(--primary);
+  --field-bg: #ffffff;
 }
 
 .amount-field {
+  --field-accent: var(--primary);
+  --field-bg: #f2f8f3;
   font-size: 18px;
+}
+
+.title-field {
+  --field-accent: var(--tertiary);
+  --field-bg: #fff6f5;
+}
+
+.person-field {
+  --field-accent: var(--blue);
+  --field-bg: #f2f8fc;
+}
+
+.category-field {
+  --field-accent: var(--secondary);
+  --field-bg: #fff9e6;
+}
+
+.date-field {
+  --field-accent: #7D5BA6;
+  --field-bg: #f7f3fb;
+}
+
+.notes-field {
+  --field-accent: #6C757D;
+  --field-bg: #f5f6f6;
 }
 
 .field small {
@@ -435,20 +464,42 @@ button {
   letter-spacing: 0;
 }
 
+.shortcut-group {
+  display: grid;
+  gap: 8px;
+  margin: -2px 0 16px;
+}
+
+.shortcut-group > span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+}
+
 .quick-picks {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
-  margin: -2px 0 16px;
 }
 
 .quick-picks button {
   min-height: 48px;
   border-radius: 8px;
-  background: #eef6ef;
+  background: color-mix(in srgb, var(--chip-color, var(--primary)) 10%, white);
   color: var(--primary);
   border: 1px solid #cfe0d1;
+  border-left: 5px solid var(--chip-color, var(--primary));
   font-weight: 900;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+  padding: 7px 8px;
+}
+
+.quick-picks button.selected {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+  border-left-color: var(--secondary);
 }
 
 .textarea {
@@ -727,6 +778,19 @@ button {
   max-height: calc(100vh - 36px);
   overflow: auto;
   padding: 18px;
+}
+
+.modal .field {
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--field-accent) 28%, var(--line));
+  border-left: 6px solid var(--field-accent);
+  border-radius: 8px;
+  background: var(--field-bg);
+}
+
+.modal .field .input,
+.modal .field .textarea {
+  background: white;
 }
 
 .modal-actions {
