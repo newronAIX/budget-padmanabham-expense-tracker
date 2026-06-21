@@ -672,7 +672,7 @@ button {
   .app {
     width: min(430px, 100%);
     margin: 0 auto;
-    padding: 16px 14px 112px;
+    padding: 16px 14px 132px;
   }
 
   .setup-grid,
@@ -724,7 +724,7 @@ button {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
     gap: 3px;
-    padding: 8px 10px max(8px, env(safe-area-inset-bottom));
+    padding: 9px 10px max(9px, env(safe-area-inset-bottom));
     background: rgba(249, 249, 244, 0.96);
     border-top: 1px solid var(--line);
     backdrop-filter: blur(12px);
@@ -747,15 +747,16 @@ button {
   .bottom-nav .floating-add {
     position: absolute;
     left: 50%;
-    top: -28px;
-    width: 58px;
-    height: 58px;
-    min-height: 58px;
+    top: -66px;
+    width: 56px;
+    height: 56px;
+    min-height: 56px;
     transform: translateX(-50%);
     border-radius: 50%;
     background: var(--secondary);
     color: #271c00;
     font-size: 28px;
+    border: 4px solid var(--paper);
     box-shadow: 0 14px 32px rgba(117, 86, 0, 0.24);
   }
 

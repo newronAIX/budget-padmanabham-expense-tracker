@@ -38,6 +38,7 @@
     sort: "date",
     scope: "EXPENSE",
     busy: false,
+    checkingSession: hasSupabase && !previewMode,
     error: "",
     demo: previewMode,
     preview: previewMode
@@ -210,11 +211,13 @@
   async function init() {
     if (state.demo) {
       seedDemo();
+      state.checkingSession = false;
       render();
       return;
     }
 
     if (!hasSupabase) {
+      state.checkingSession = false;
       render();
       return;
     }
@@ -223,8 +226,10 @@
     state.user = data.session ? await getValidatedUser() : null;
     client.auth.onAuthStateChange(async (_event, session) => {
       state.user = session ? await getValidatedUser() : null;
+      state.checkingSession = false;
       load().catch(showError);
     });
+    state.checkingSession = false;
     await load();
   }
 
@@ -327,8 +332,7 @@
     const { error } = await client.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: window.location.origin + window.location.pathname,
-        queryParams: { prompt: "select_account" }
+        redirectTo: window.location.origin + window.location.pathname
       }
     });
     if (error) throw error;
@@ -377,6 +381,22 @@
     return state.people.find((person) => person.id === id)?.display_name || "Family";
   }
 
+  function currentUserPerson() {
+    if (!state.user) return null;
+    const emailName = state.user.email?.split("@")[0] || "";
+    const fullName = state.user.user_metadata?.full_name || emailName;
+    return (
+      state.people.find((person) => person.linked_user_id === state.user.id) ||
+      state.people.find((person) => comparableText(person.display_name) === comparableText(fullName)) ||
+      state.people.find((person) => comparableText(person.display_name) === comparableText(emailName)) ||
+      null
+    );
+  }
+
+  function defaultExpensePersonId(expense) {
+    return expense?.person_id || currentUserPerson()?.id || state.people[0]?.id || "";
+  }
+
   function personInitial(idOrName) {
     const name = state.people.find((person) => person.id === idOrName)?.display_name || idOrName || "?";
     return String(name).trim().slice(0, 1).toUpperCase();
@@ -410,7 +430,7 @@
           ${topbar()}
           ${state.preview ? `<div class="notice">Preview mode is active for design review. Real users still enter with Gmail.</div>` : ""}
           ${state.error ? `<div class="error">${escapeHtml(state.error)}</div>` : ""}
-          ${needsConfig ? configScreen() : needsAuth ? authScreen() : needsSetup ? setupScreen() : appScreen()}
+          ${needsConfig ? configScreen() : state.checkingSession ? loadingScreen() : needsAuth ? authScreen() : needsSetup ? setupScreen() : appScreen()}
         </main>
       </div>
       ${state.user && state.family ? bottomNav() : ""}
@@ -432,6 +452,16 @@
         </div>
         ${state.user ? `<button class="icon-button" data-action="signout" title="Sign out">↪</button>` : ""}
       </header>
+    `;
+  }
+
+  function loadingScreen() {
+    return `
+      <section class="auth card">
+        <div class="auth-mark">₹</div>
+        <h2>Opening your family tracker</h2>
+        <p>Checking your saved Gmail login. You only need to sign in again if the previous session has expired or you signed out.</p>
+      </section>
     `;
   }
 
@@ -835,11 +865,12 @@
   function expenseForm(id) {
     const expense = state.expenses.find((item) => item.id === id);
     const dateValue = expense?.spent_on || todayKey();
+    const selectedPersonId = defaultExpensePersonId(expense);
     return `
       <form data-form="expense" data-id="${id || ""}">
         <label class="field">Amount<input class="input" name="amount" type="number" inputmode="decimal" min="1" step="1" value="${escapeHtml(expense?.amount || "")}" placeholder="Example: 250" required></label>
         <label class="field">What was it for?<input class="input" name="title" value="${escapeHtml(expense?.title || "")}" placeholder="Milk, vegetables, medicine" required></label>
-        <label class="field">Who spent it?<select class="input" name="person_id" required>${state.people.map((p) => `<option value="${p.id}" ${expense?.person_id === p.id ? "selected" : ""}>${escapeHtml(p.display_name)}</option>`).join("")}</select></label>
+        <label class="field">Who spent it?<select class="input" name="person_id" required>${state.people.map((p) => `<option value="${p.id}" ${selectedPersonId === p.id ? "selected" : ""}>${escapeHtml(p.display_name)}</option>`).join("")}</select></label>
         <label class="field">Category<select class="input" name="category_id">${activeExpenseCategories().map((c) => `<option value="${c.id}" ${expense?.category_id === c.id ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select></label>
         <label class="field">Date<input class="input" name="spent_on" type="date" value="${dateValue}" required><small>Today is loaded automatically. Change only if needed.</small></label>
         <label class="field">Notes<textarea class="textarea" name="note" placeholder="Optional">${escapeHtml(expense?.note || "")}</textarea></label>
