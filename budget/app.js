@@ -136,7 +136,9 @@
       name: "Padmanabham Family",
       currency_code: "INR",
       monthly_budget: 150000,
-      owner_id: "demo-user"
+      owner_id: "demo-user",
+      invite_code: "BUDGET-2048",
+      invite_locked: false
     };
     const people = [
       { id: "p-ramesh", family_id: family.id, display_name: "Ramesh", linked_user_id: "demo-user" },
@@ -188,16 +190,6 @@
       { id: "i-2", family_id: family.id, title: "House rent", amount: 18000, day_of_month: 10, category_id: "c-inc-1", is_active: true, created_by: "demo-user" },
       { id: "i-3", family_id: family.id, title: "Pension", amount: 12000, day_of_month: 15, category_id: "c-inc-2", is_active: false, created_by: "demo-user" }
     ];
-    const invites = [
-      {
-        id: "invite-preview",
-        family_id: family.id,
-        invite_code: "BUDGET-2048",
-        invited_email: "family@gmail.com",
-        inviter_id: "demo-user",
-        status: "PENDING"
-      }
-    ];
     return {
       family,
       membership: { family_id: family.id, role: "OWNER" },
@@ -205,7 +197,7 @@
       categories,
       expenses,
       incomes,
-      invites
+      invites: []
     };
   }
 
@@ -293,7 +285,7 @@
 
     state.membership = memberships[0];
     const familyId = memberships[0].family_id;
-    const [familyRes, peopleRes, categoriesRes, expensesRes, incomesRes, invitesRes] = await Promise.all([
+    const [familyRes, peopleRes, categoriesRes, expensesRes, incomesRes] = await Promise.all([
       client.from("budget_families").select("*").eq("id", familyId).single(),
       client.from("budget_people").select("*").eq("family_id", familyId).order("created_at"),
       client.from("budget_categories").select("*").eq("family_id", familyId).order("scope").order("name"),
@@ -307,8 +299,7 @@
         .from("budget_incomes")
         .select("*, budget_categories(name,color)")
         .eq("family_id", familyId)
-        .order("created_at", { ascending: false }),
-      client.from("budget_invites").select("*").eq("family_id", familyId).order("created_at", { ascending: false }).limit(8)
+        .order("created_at", { ascending: false })
     ]);
 
     if (familyRes.error) throw familyRes.error;
@@ -316,14 +307,13 @@
     if (categoriesRes.error) throw categoriesRes.error;
     if (expensesRes.error) throw expensesRes.error;
     if (incomesRes.error) throw incomesRes.error;
-    if (invitesRes.error) throw invitesRes.error;
 
     state.family = familyRes.data;
     state.people = peopleRes.data || [];
     state.categories = categoriesRes.data || [];
     state.expenses = expensesRes.data || [];
     state.incomes = incomesRes.data || [];
-    state.invites = invitesRes.data || [];
+    state.invites = [];
     render();
   }
 
@@ -560,20 +550,31 @@
   function setupScreen() {
     const defaultName = state.user?.user_metadata?.full_name || state.user?.email?.split("@")[0] || "";
     return `
-      <section class="setup-grid">
-        <form class="card panel" data-form="create-family">
-          <h2>Create family</h2>
-          <label class="field">Family name<input class="input" name="family" value="Padmanabham Family" required></label>
-          <label class="field">Your display name<input class="input" name="person" value="${escapeHtml(defaultName)}" required></label>
-          <label class="field">Monthly budget<input class="input" name="budget" type="number" value="150000" min="0"></label>
-          <button class="primary wide" type="submit">Start family tracker</button>
-        </form>
-        <form class="card panel" data-form="join-family">
-          <h2>Join family</h2>
-          <label class="field">Invite code<input class="input code-input" name="code" placeholder="BUDGET-1234" required></label>
-          <label class="field">Your display name<input class="input" name="person" value="${escapeHtml(defaultName)}" required></label>
-          <button class="secondary wide" type="submit">Join with code</button>
-        </form>
+      <section class="entry-panel">
+        <div class="choice-hero">
+          <span class="secure-pill">First step</span>
+          <h2>Choose how you want to enter</h2>
+          <p>Create a new family if you are starting the group. Join an existing family if someone already sent you a Budget code.</p>
+        </div>
+        <div class="setup-grid">
+          <form class="card panel setup-card create-choice" data-form="create-family">
+            <span class="choice-number">1</span>
+            <h2>Create a family</h2>
+            <p class="section-subtitle">Use this when you are the first person setting up the family.</p>
+            <label class="field">Family name<input class="input" name="family" value="Padmanabham Family" required></label>
+            <label class="field">Your display name<input class="input" name="person" value="${escapeHtml(defaultName)}" required></label>
+            <label class="field">Monthly budget<input class="input" name="budget" type="number" value="150000" min="0"></label>
+            <button class="primary wide" type="submit">Create family</button>
+          </form>
+          <form class="card panel setup-card join-choice" data-form="join-family">
+            <span class="choice-number">2</span>
+            <h2>Join existing family</h2>
+            <p class="section-subtitle">Use the one invite code shared by your family.</p>
+            <label class="field">Invite code<input class="input code-input" name="code" placeholder="BUDGET-1234" required></label>
+            <label class="field">Your display name<input class="input" name="person" value="${escapeHtml(defaultName)}" required></label>
+            <button class="secondary wide" type="submit">Join with code</button>
+          </form>
+        </div>
       </section>
     `;
   }
@@ -888,6 +889,8 @@
 
   function familyScreen() {
     const isOwner = state.membership?.role === "OWNER";
+    const inviteCode = state.family?.invite_code || "Code is being prepared";
+    const locked = Boolean(state.family?.invite_locked);
     return `
       <section class="dashboard-grid">
         <div class="card panel">
@@ -904,14 +907,22 @@
           `).join("")}
         </div>
         <aside class="card panel">
-          <h2>Invite</h2>
-          ${isOwner ? `
-            <form data-form="invite">
-              <label class="field">Email (optional)<input class="input" name="email" type="email" placeholder="member@gmail.com"></label>
-              <button class="primary wide" type="submit">Create invite code</button>
-            </form>
-            ${state.invites.length ? state.invites.map((invite) => `<div class="invite-code"><span>${invite.status}</span><strong>${invite.invite_code}</strong></div>`).join("") : ""}
-          ` : `<p class="muted">Only the owner can invite members.</p>`}
+          <div class="section-head">
+            <div>
+              <h2>Family invite</h2>
+              <p class="section-subtitle">One code for this family</p>
+            </div>
+            <span class="lock-badge ${locked ? "locked" : ""}">${locked ? "Locked" : "Open"}</span>
+          </div>
+          <div class="invite-code single-code">
+            <span>Share this code</span>
+            <strong>${escapeHtml(inviteCode)}</strong>
+          </div>
+          <div class="invite-actions">
+            <button class="secondary wide" data-copy-invite="${escapeHtml(inviteCode)}">Copy code</button>
+            ${isOwner ? `<button class="${locked ? "primary" : "danger"} wide" data-action="toggle-family-lock">${locked ? "Unlock joining" : "Lock joining"}</button>` : ""}
+          </div>
+          <p class="muted invite-help">${isOwner ? "You created this family, so only you can lock or unlock new joining." : "You can share the code. Only the family creator can lock or unlock joining."}</p>
           <hr>
           <button class="secondary wide" data-action="signout">Sign out</button>
         </aside>
@@ -1068,7 +1079,6 @@
     bindForm("income", saveIncome);
     bindForm("category", saveCategory);
     bindForm("person", savePerson);
-    bindForm("invite", createInvite);
 
     document.querySelectorAll("[data-edit-expense]").forEach((button) => button.addEventListener("click", () => openModal("expense", button.dataset.editExpense)));
     document.querySelectorAll("[data-delete-expense]").forEach((button) => button.addEventListener("click", run(() => deleteExpense(button.dataset.deleteExpense))));
@@ -1077,6 +1087,8 @@
     document.querySelectorAll("[data-edit-category]").forEach((button) => button.addEventListener("click", () => openModal("category", button.dataset.editCategory)));
     document.querySelectorAll("[data-delete-category]").forEach((button) => button.addEventListener("click", run(() => deleteCategory(button.dataset.deleteCategory))));
     document.querySelectorAll("[data-edit-person]").forEach((button) => button.addEventListener("click", () => openModal("person", button.dataset.editPerson)));
+    document.querySelector("[data-action='toggle-family-lock']")?.addEventListener("click", run(toggleFamilyLock));
+    document.querySelector("[data-copy-invite]")?.addEventListener("click", run(copyInviteCode));
     document.querySelectorAll("[data-category-shortcut]").forEach((button) => button.addEventListener("click", () => {
       const form = button.closest("form");
       const categorySelect = form?.querySelector("select[name='category_id']");
@@ -1167,7 +1179,7 @@
 
     if (state.demo) {
       const familyId = crypto.randomUUID();
-      state.family = { id: familyId, name: familyName, currency_code: "INR", monthly_budget: budget, owner_id: state.user.id };
+      state.family = { id: familyId, name: familyName, currency_code: "INR", monthly_budget: budget, owner_id: state.user.id, invite_code: createInviteCode(), invite_locked: false };
       state.membership = { family_id: familyId, role: "OWNER" };
       state.people = [{ id: crypto.randomUUID(), family_id: familyId, display_name: personName, linked_user_id: state.user.id }];
       state.categories = [
@@ -1181,7 +1193,7 @@
 
     const { data: family, error: familyError } = await client
       .from("budget_families")
-      .insert({ name: familyName, owner_id: state.user.id, currency_code: "INR", monthly_budget: budget })
+      .insert({ name: familyName, owner_id: state.user.id, currency_code: "INR", monthly_budget: budget, invite_code: createInviteCode(), invite_locked: false })
       .select()
       .single();
     if (familyError) throw familyError;
@@ -1404,27 +1416,32 @@
     await load();
   }
 
-  async function createInvite(form) {
-    const data = Object.fromEntries(new FormData(form).entries());
-    const code = createInviteCode();
-    const invitedEmail = cleanText(data.email).toLowerCase();
-    const payload = {
-      family_id: state.family.id,
-      invite_code: code,
-      invited_email: invitedEmail || null,
-      inviter_id: state.user.id
-    };
+  async function toggleFamilyLock() {
+    if (state.membership?.role !== "OWNER") throw new Error("Only the family creator can lock or unlock joining.");
+    const nextLocked = !state.family.invite_locked;
     if (state.demo) {
-      state.invites.unshift({ id: crypto.randomUUID(), ...payload, status: "PENDING" });
+      state.family = { ...state.family, invite_locked: nextLocked };
       writeDemo();
       render();
-      window.alert(`Invite code: ${code}`);
       return;
     }
-    const { error } = await client.from("budget_invites").insert(payload);
+    const { error } = await client
+      .from("budget_families")
+      .update({ invite_locked: nextLocked })
+      .eq("id", state.family.id);
     if (error) throw error;
     await load();
-    window.alert(`Invite code: ${code}`);
+  }
+
+  async function copyInviteCode(event) {
+    const code = event.currentTarget.dataset.copyInvite || state.family?.invite_code || "";
+    if (!code || code === "Code is being prepared") throw new Error("Invite code is not ready yet.");
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(code);
+      window.alert("Invite code copied.");
+      return;
+    }
+    window.prompt("Copy this invite code", code);
   }
 
   function runForm(action) {

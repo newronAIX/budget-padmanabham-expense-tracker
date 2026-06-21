@@ -19,10 +19,13 @@ create table if not exists public.budget_families (
   owner_id uuid not null references auth.users(id) on delete cascade,
   currency_code text not null default 'INR',
   monthly_budget numeric(12,2) not null default 0,
+  invite_code text,
+  invite_locked boolean not null default false,
   created_at timestamptz not null default now(),
   constraint budget_families_name_len check (char_length(trim(name)) between 1 and 80),
   constraint budget_families_currency_len check (char_length(currency_code) = 3),
-  constraint budget_families_monthly_budget_nonnegative check (monthly_budget >= 0)
+  constraint budget_families_monthly_budget_nonnegative check (monthly_budget >= 0),
+  constraint budget_families_invite_code_format check (invite_code is null or invite_code ~ '^BUDGET-[A-Z0-9]{4,12}$')
 );
 
 create table if not exists public.budget_family_users (
@@ -125,6 +128,15 @@ begin
   if not exists (select 1 from pg_constraint where conname = 'budget_families_name_len') then
     alter table public.budget_families add constraint budget_families_name_len check (char_length(trim(name)) between 1 and 80);
   end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_families' and column_name = 'invite_code') then
+    alter table public.budget_families add column invite_code text;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_families' and column_name = 'invite_locked') then
+    alter table public.budget_families add column invite_locked boolean not null default false;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'budget_families_invite_code_format') then
+    alter table public.budget_families add constraint budget_families_invite_code_format check (invite_code is null or invite_code ~ '^BUDGET-[A-Z0-9]{4,12}$');
+  end if;
   if not exists (select 1 from pg_constraint where conname = 'budget_people_display_name_len') then
     alter table public.budget_people add constraint budget_people_display_name_len check (char_length(trim(display_name)) between 1 and 80);
   end if;
@@ -152,15 +164,74 @@ begin
 end;
 $$;
 
+update public.budget_families f
+set invite_code = chosen.invite_code
+from (
+  select distinct on (family_id) family_id, invite_code
+  from public.budget_invites
+  order by family_id, created_at asc
+) chosen
+where f.id = chosen.family_id
+  and f.invite_code is null;
+
+do $$
+declare
+  family_row record;
+  candidate text;
+begin
+  for family_row in select id from public.budget_families where invite_code is null loop
+    loop
+      candidate := 'BUDGET-' || upper(substr(encode(extensions.gen_random_bytes(6), 'hex'), 1, 8));
+      exit when not exists (select 1 from public.budget_families where invite_code = candidate);
+    end loop;
+    update public.budget_families set invite_code = candidate where id = family_row.id;
+  end loop;
+end;
+$$;
+
+create unique index if not exists budget_families_invite_code_uq
+on public.budget_families (invite_code);
+
+alter table public.budget_families alter column invite_code set not null;
+
 create index if not exists budget_family_users_user_idx on public.budget_family_users (user_id);
 create index if not exists budget_people_family_idx on public.budget_people (family_id);
 create index if not exists budget_categories_family_idx on public.budget_categories (family_id, scope);
 create index if not exists budget_expenses_family_spent_on_idx on public.budget_expenses (family_id, spent_on desc);
 create index if not exists budget_incomes_family_idx on public.budget_incomes (family_id);
 
+create or replace function public.budget_set_family_invite_code()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+declare
+  candidate text;
+begin
+  if new.invite_code is not null then
+    new.invite_code = upper(trim(new.invite_code));
+    return new;
+  end if;
+
+  loop
+    candidate := 'BUDGET-' || upper(substr(encode(extensions.gen_random_bytes(6), 'hex'), 1, 8));
+    exit when not exists (select 1 from public.budget_families where invite_code = candidate);
+  end loop;
+
+  new.invite_code = candidate;
+  return new;
+end;
+$$;
+
+drop trigger if exists budget_families_invite_code on public.budget_families;
+create trigger budget_families_invite_code
+before insert on public.budget_families
+for each row execute function public.budget_set_family_invite_code();
+
 create or replace function public.budget_set_updated_at()
 returns trigger
 language plpgsql
+set search_path = ''
 as $$
 begin
   new.updated_at = now();
@@ -221,7 +292,7 @@ security definer
 set search_path = ''
 as $$
 declare
-  invite_row public.budget_invites%rowtype;
+  family_row public.budget_families%rowtype;
   normalized_code text := upper(trim(invite_code_input));
   member_name text := nullif(trim(display_name_input), '');
   current_email text := auth.email();
@@ -231,27 +302,26 @@ begin
   end if;
 
   select *
-  into invite_row
-  from public.budget_invites
+  into family_row
+  from public.budget_families
   where invite_code = normalized_code
-    and status = 'PENDING'
   limit 1;
 
-  if invite_row.id is null then
-    raise exception 'Invite code is invalid or already used';
+  if family_row.id is null then
+    raise exception 'Invite code is invalid';
   end if;
 
-  if invite_row.invited_email is not null and lower(invite_row.invited_email) <> lower(current_email) then
-    raise exception 'This invite was created for a different email address';
+  if family_row.invite_locked then
+    raise exception 'This family is locked. Ask the family creator to unlock joining.';
   end if;
 
   insert into public.budget_family_users (family_id, user_id, role)
-  values (invite_row.family_id, auth.uid(), 'MEMBER')
+  values (family_row.id, auth.uid(), 'MEMBER')
   on conflict (family_id, user_id) do nothing;
 
   insert into public.budget_people (family_id, display_name, linked_user_id, created_by)
   values (
-    invite_row.family_id,
+    family_row.id,
     coalesce(member_name, current_email, 'Family member'),
     auth.uid(),
     auth.uid()
@@ -259,13 +329,7 @@ begin
   on conflict (family_id, linked_user_id) where linked_user_id is not null do update
     set display_name = excluded.display_name;
 
-  update public.budget_invites
-  set status = 'ACCEPTED',
-      accepted_by = auth.uid(),
-      accepted_at = now()
-  where id = invite_row.id;
-
-  return invite_row.family_id;
+  return family_row.id;
 end;
 $$;
 

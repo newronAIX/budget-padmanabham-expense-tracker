@@ -235,6 +235,76 @@ button {
   gap: 16px;
 }
 
+.entry-panel {
+  width: min(900px, 100%);
+  margin: 0 auto;
+}
+
+.choice-hero {
+  margin-bottom: 16px;
+  padding: 20px;
+  border-radius: 8px;
+  background: var(--primary);
+  color: white;
+}
+
+.choice-hero h2 {
+  margin: 8px 0 6px;
+  font-size: 30px;
+  line-height: 1.08;
+}
+
+.choice-hero p {
+  max-width: 620px;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.78);
+  line-height: 1.45;
+}
+
+.choice-hero .secure-pill {
+  background: rgba(255, 255, 255, 0.16);
+  color: white;
+}
+
+.setup-card {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-height: 100%;
+}
+
+.setup-card h2 {
+  margin-bottom: 0;
+  padding-right: 42px;
+}
+
+.setup-card .section-subtitle {
+  margin: 0 0 4px;
+}
+
+.choice-number {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--wash);
+  color: var(--primary);
+  font-weight: 950;
+}
+
+.create-choice {
+  border-top: 6px solid var(--primary);
+}
+
+.join-choice {
+  border-top: 6px solid var(--blue);
+}
+
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -817,6 +887,11 @@ button {
   gap: 5px;
 }
 
+.single-code {
+  margin-top: 10px;
+  background: #12392a;
+}
+
 .invite-code span {
   color: rgba(255, 255, 255, 0.72);
   font-size: 12px;
@@ -825,6 +900,40 @@ button {
 .invite-code strong {
   font-size: 20px;
   letter-spacing: 0;
+}
+
+.single-code strong {
+  font-size: 26px;
+  line-height: 1.1;
+  word-break: break-word;
+}
+
+.invite-actions {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.invite-help {
+  margin: 0 0 14px;
+  line-height: 1.45;
+}
+
+.lock-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #dceee5;
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.lock-badge.locked {
+  background: #fff0ee;
+  color: #9f2e27;
 }
 
 .check {
@@ -930,6 +1039,20 @@ button {
 
   .hero {
     align-items: flex-start;
+  }
+
+  .section-head {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .section-head .compact {
+    width: 100%;
+  }
+
+  .section-head .lock-badge {
+    width: 100%;
+    justify-content: center;
   }
 
   .quick-entry {
