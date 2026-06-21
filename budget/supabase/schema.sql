@@ -21,6 +21,8 @@ create table if not exists public.budget_families (
   monthly_budget numeric(12,2) not null default 0,
   invite_code text,
   invite_locked boolean not null default false,
+  encryption_salt text,
+  encryption_check text,
   created_at timestamptz not null default now(),
   constraint budget_families_name_len check (char_length(trim(name)) between 1 and 80),
   constraint budget_families_currency_len check (char_length(currency_code) = 3),
@@ -36,6 +38,20 @@ create table if not exists public.budget_family_users (
   created_at timestamptz not null default now(),
   unique (family_id, user_id),
   constraint budget_family_users_role_check check (role in ('OWNER', 'MEMBER'))
+);
+
+create table if not exists public.budget_join_requests (
+  id uuid primary key default gen_random_uuid(),
+  family_id uuid not null references public.budget_families(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  display_name text not null,
+  status text not null default 'PENDING',
+  requested_at timestamptz not null default now(),
+  reviewed_by uuid references auth.users(id) on delete set null,
+  reviewed_at timestamptz,
+  unique (family_id, user_id),
+  constraint budget_join_requests_display_name_len check (char_length(trim(display_name)) between 1 and 80),
+  constraint budget_join_requests_status_check check (status in ('PENDING', 'APPROVED', 'REJECTED'))
 );
 
 create table if not exists public.budget_people (
@@ -78,6 +94,8 @@ create table if not exists public.budget_expenses (
   person_id uuid not null references public.budget_people(id) on delete restrict,
   category_id uuid references public.budget_categories(id) on delete set null,
   note text,
+  encrypted_payload text,
+  encryption_version int,
   entered_by uuid not null references auth.users(id) on delete cascade,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -134,6 +152,12 @@ begin
   if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_families' and column_name = 'invite_locked') then
     alter table public.budget_families add column invite_locked boolean not null default false;
   end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_families' and column_name = 'encryption_salt') then
+    alter table public.budget_families add column encryption_salt text;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_families' and column_name = 'encryption_check') then
+    alter table public.budget_families add column encryption_check text;
+  end if;
   if not exists (select 1 from pg_constraint where conname = 'budget_families_invite_code_format') then
     alter table public.budget_families add constraint budget_families_invite_code_format check (invite_code is null or invite_code ~ '^BUDGET-[A-Z0-9]{4,12}$');
   end if;
@@ -151,6 +175,12 @@ begin
   end if;
   if not exists (select 1 from pg_constraint where conname = 'budget_expenses_note_len') then
     alter table public.budget_expenses add constraint budget_expenses_note_len check (note is null or char_length(note) <= 500);
+  end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_expenses' and column_name = 'encrypted_payload') then
+    alter table public.budget_expenses add column encrypted_payload text;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_expenses' and column_name = 'encryption_version') then
+    alter table public.budget_expenses add column encryption_version int;
   end if;
   if not exists (select 1 from pg_constraint where conname = 'budget_incomes_title_len') then
     alter table public.budget_incomes add constraint budget_incomes_title_len check (char_length(trim(title)) between 1 and 120);
@@ -195,6 +225,8 @@ on public.budget_families (invite_code);
 alter table public.budget_families alter column invite_code set not null;
 
 create index if not exists budget_family_users_user_idx on public.budget_family_users (user_id);
+create index if not exists budget_join_requests_family_status_idx on public.budget_join_requests (family_id, status, requested_at);
+create index if not exists budget_join_requests_user_status_idx on public.budget_join_requests (user_id, status, requested_at desc);
 create index if not exists budget_people_family_idx on public.budget_people (family_id);
 create index if not exists budget_categories_family_idx on public.budget_categories (family_id, scope);
 create index if not exists budget_expenses_family_spent_on_idx on public.budget_expenses (family_id, spent_on desc);
@@ -315,19 +347,26 @@ begin
     raise exception 'This family is locked. Ask the family creator to unlock joining.';
   end if;
 
-  insert into public.budget_family_users (family_id, user_id, role)
-  values (family_row.id, auth.uid(), 'MEMBER')
-  on conflict (family_id, user_id) do nothing;
+  if exists (
+    select 1 from public.budget_family_users
+    where family_id = family_row.id and user_id = auth.uid()
+  ) then
+    return family_row.id;
+  end if;
 
-  insert into public.budget_people (family_id, display_name, linked_user_id, created_by)
+  insert into public.budget_join_requests (family_id, user_id, display_name, status)
   values (
     family_row.id,
-    coalesce(member_name, current_email, 'Family member'),
     auth.uid(),
-    auth.uid()
+    coalesce(member_name, current_email, 'Family member'),
+    'PENDING'
   )
-  on conflict (family_id, linked_user_id) where linked_user_id is not null do update
-    set display_name = excluded.display_name;
+  on conflict (family_id, user_id) do update
+    set display_name = excluded.display_name,
+        status = 'PENDING',
+        requested_at = now(),
+        reviewed_by = null,
+        reviewed_at = null;
 
   return family_row.id;
 end;
@@ -348,9 +387,184 @@ $$;
 revoke all on function public.join_budget_invite(text, text) from public;
 grant execute on function public.join_budget_invite(text, text) to authenticated;
 
+create or replace function budget_private.get_budget_invite_security(invite_code_input text)
+returns table(family_id uuid, family_name text, encryption_salt text, encryption_check text)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  normalized_code text := upper(trim(invite_code_input));
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  return query
+  select f.id, f.name, f.encryption_salt, f.encryption_check
+  from public.budget_families f
+  where f.invite_code = normalized_code
+    and f.invite_locked is false
+  limit 1;
+end;
+$$;
+
+revoke all on function budget_private.get_budget_invite_security(text) from public;
+grant execute on function budget_private.get_budget_invite_security(text) to authenticated;
+
+create or replace function public.get_budget_invite_security(invite_code_input text)
+returns table(family_id uuid, family_name text, encryption_salt text, encryption_check text)
+language sql
+security invoker
+set search_path = ''
+as $$
+  select * from budget_private.get_budget_invite_security(invite_code_input);
+$$;
+
+revoke all on function public.get_budget_invite_security(text) from public;
+grant execute on function public.get_budget_invite_security(text) to authenticated;
+
+create or replace function budget_private.review_budget_join_request(request_id_input uuid, decision_input text)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  request_row public.budget_join_requests%rowtype;
+  decision text := upper(trim(decision_input));
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  select *
+  into request_row
+  from public.budget_join_requests
+  where id = request_id_input
+    and status = 'PENDING'
+  limit 1;
+
+  if request_row.id is null then
+    raise exception 'Join request not found';
+  end if;
+
+  if not exists (
+    select 1 from public.budget_families f
+    where f.id = request_row.family_id and f.owner_id = auth.uid()
+  ) then
+    raise exception 'Only the family moderator can review join requests';
+  end if;
+
+  if decision not in ('APPROVED', 'REJECTED') then
+    raise exception 'Decision must be APPROVED or REJECTED';
+  end if;
+
+  update public.budget_join_requests
+  set status = decision,
+      reviewed_by = auth.uid(),
+      reviewed_at = now()
+  where id = request_row.id;
+
+  if decision = 'APPROVED' then
+    insert into public.budget_family_users (family_id, user_id, role)
+    values (request_row.family_id, request_row.user_id, 'MEMBER')
+    on conflict (family_id, user_id) do nothing;
+
+    insert into public.budget_people (family_id, display_name, linked_user_id, created_by)
+    values (request_row.family_id, request_row.display_name, request_row.user_id, auth.uid())
+    on conflict (family_id, linked_user_id) where linked_user_id is not null do update
+      set display_name = excluded.display_name;
+  end if;
+end;
+$$;
+
+revoke all on function budget_private.review_budget_join_request(uuid, text) from public;
+grant execute on function budget_private.review_budget_join_request(uuid, text) to authenticated;
+
+create or replace function public.review_budget_join_request(request_id_input uuid, decision_input text)
+returns void
+language sql
+security invoker
+set search_path = ''
+as $$
+  select budget_private.review_budget_join_request(request_id_input, decision_input);
+$$;
+
+revoke all on function public.review_budget_join_request(uuid, text) from public;
+grant execute on function public.review_budget_join_request(uuid, text) to authenticated;
+
+create or replace function budget_private.leave_budget_family(target_family uuid)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  was_owner boolean;
+  next_owner uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+
+  select exists (
+    select 1 from public.budget_families
+    where id = target_family and owner_id = auth.uid()
+  ) into was_owner;
+
+  delete from public.budget_family_users
+  where family_id = target_family and user_id = auth.uid();
+
+  update public.budget_people
+  set linked_user_id = null
+  where family_id = target_family and linked_user_id = auth.uid();
+
+  if not exists (select 1 from public.budget_family_users where family_id = target_family) then
+    delete from public.budget_families where id = target_family;
+    return;
+  end if;
+
+  if was_owner then
+    select fu.user_id
+    into next_owner
+    from public.budget_family_users fu
+    left join public.budget_people p on p.family_id = fu.family_id and p.linked_user_id = fu.user_id
+    left join public.budget_profiles pr on pr.id = fu.user_id
+    where fu.family_id = target_family
+    order by lower(coalesce(p.display_name, pr.full_name, pr.email, fu.user_id::text)), fu.user_id
+    limit 1;
+
+    update public.budget_families
+    set owner_id = next_owner
+    where id = target_family;
+
+    update public.budget_family_users
+    set role = case when user_id = next_owner then 'OWNER' else 'MEMBER' end
+    where family_id = target_family;
+  end if;
+end;
+$$;
+
+revoke all on function budget_private.leave_budget_family(uuid) from public;
+grant execute on function budget_private.leave_budget_family(uuid) to authenticated;
+
+create or replace function public.leave_budget_family(target_family uuid)
+returns void
+language sql
+security invoker
+set search_path = ''
+as $$
+  select budget_private.leave_budget_family(target_family);
+$$;
+
+revoke all on function public.leave_budget_family(uuid) from public;
+grant execute on function public.leave_budget_family(uuid) to authenticated;
+
 grant select, insert, update on public.budget_profiles to authenticated;
 grant select, insert, update, delete on public.budget_families to authenticated;
 grant select, insert, update, delete on public.budget_family_users to authenticated;
+grant select, insert, update on public.budget_join_requests to authenticated;
 grant select, insert, update, delete on public.budget_people to authenticated;
 grant select, insert, update, delete on public.budget_categories to authenticated;
 grant select, insert, update, delete on public.budget_expenses to authenticated;
@@ -361,6 +575,7 @@ grant usage, select on all sequences in schema public to authenticated;
 alter table public.budget_profiles enable row level security;
 alter table public.budget_families enable row level security;
 alter table public.budget_family_users enable row level security;
+alter table public.budget_join_requests enable row level security;
 alter table public.budget_people enable row level security;
 alter table public.budget_categories enable row level security;
 alter table public.budget_expenses enable row level security;
@@ -411,6 +626,36 @@ create policy "budget_family_users_owner_delete" on public.budget_family_users
 for delete to authenticated using (
   role = 'MEMBER'
   and exists (
+    select 1 from public.budget_families f
+    where f.id = family_id and f.owner_id = auth.uid()
+  )
+);
+
+drop policy if exists "budget_join_requests_read" on public.budget_join_requests;
+create policy "budget_join_requests_read" on public.budget_join_requests
+for select to authenticated using (
+  user_id = auth.uid()
+  or exists (
+    select 1 from public.budget_families f
+    where f.id = family_id and f.owner_id = auth.uid()
+  )
+);
+
+drop policy if exists "budget_join_requests_insert_self" on public.budget_join_requests;
+create policy "budget_join_requests_insert_self" on public.budget_join_requests
+for insert to authenticated with check (user_id = auth.uid());
+
+drop policy if exists "budget_join_requests_owner_update" on public.budget_join_requests;
+create policy "budget_join_requests_owner_update" on public.budget_join_requests
+for update to authenticated using (
+  user_id = auth.uid()
+  or exists (
+    select 1 from public.budget_families f
+    where f.id = family_id and f.owner_id = auth.uid()
+  )
+) with check (
+  user_id = auth.uid()
+  or exists (
     select 1 from public.budget_families f
     where f.id = family_id and f.owner_id = auth.uid()
   )

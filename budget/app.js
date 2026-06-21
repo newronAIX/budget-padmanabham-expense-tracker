@@ -3,6 +3,8 @@
   const COLORS = ["#1B4332", "#F5B700", "#EE6055", "#3A7CA5", "#7D5BA6", "#2A9D8F", "#9B5D3A", "#6C757D"];
   const EXPENSE_DEFAULTS = ["Groceries", "Milk", "Medicine", "Education", "Fuel", "Temple", "Dining"];
   const INCOME_DEFAULTS = ["Salary", "Rent", "Pension", "Business"];
+  const TERMS_VERSION = "2026-06-21";
+  const KEY_CHECK_TEXT = "budget-padmanabham-family-key-v1";
 
   const config = window.BUDGET_CONFIG || {};
   const params = new URLSearchParams(window.location.search);
@@ -34,6 +36,11 @@
     expenses: [],
     incomes: [],
     invites: [],
+    joinRequests: [],
+    pendingRequest: null,
+    familyKey: null,
+    privacyLocked: false,
+    insightTab: "overview",
     tab: initialTab,
     modal: initialModal,
     sort: "date",
@@ -47,6 +54,8 @@
   };
 
   const app = document.getElementById("app");
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
 
   const todayKey = () => {
     const d = new Date();
@@ -68,6 +77,11 @@
   const niceDate = (dateKey) => {
     const date = new Date(`${dateKey || todayKey()}T00:00:00`);
     return new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric" }).format(date);
+  };
+
+  const shortDate = (dateKey) => {
+    const date = new Date(`${dateKey || todayKey()}T00:00:00`);
+    return new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short" }).format(date);
   };
 
   const monthLabel = (key) => {
@@ -102,7 +116,8 @@
         categories: state.categories,
         expenses: state.expenses,
         incomes: state.incomes,
-        invites: state.invites
+        invites: state.invites,
+        joinRequests: state.joinRequests
       })
     );
   }
@@ -119,6 +134,7 @@
       state.expenses = seeded.expenses;
       state.incomes = seeded.incomes;
       state.invites = seeded.invites;
+      state.joinRequests = seeded.joinRequests;
       return;
     }
     state.family = saved?.family || null;
@@ -128,6 +144,7 @@
     state.expenses = saved?.expenses || [];
     state.incomes = saved?.incomes || [];
     state.invites = saved?.invites || [];
+    state.joinRequests = saved?.joinRequests || [];
   }
 
   function seededPreviewData() {
@@ -138,7 +155,9 @@
       monthly_budget: 150000,
       owner_id: "demo-user",
       invite_code: "BUDGET-2048",
-      invite_locked: false
+      invite_locked: false,
+      encryption_salt: "",
+      encryption_check: ""
     };
     const people = [
       { id: "p-ramesh", family_id: family.id, display_name: "Ramesh", linked_user_id: "demo-user" },
@@ -197,7 +216,10 @@
       categories,
       expenses,
       incomes,
-      invites: []
+      invites: [],
+      joinRequests: [
+        { id: "jr-1", family_id: family.id, display_name: "Suresh", status: "PENDING", requested_at: new Date().toISOString() }
+      ]
     };
   }
 
@@ -272,6 +294,14 @@
     if (membershipError) throw membershipError;
 
     if (!memberships?.length) {
+      const { data: pendingRows, error: pendingError } = await client
+        .from("budget_join_requests")
+        .select("*, budget_families(name)")
+        .eq("user_id", state.user.id)
+        .in("status", ["PENDING", "REJECTED"])
+        .order("requested_at", { ascending: false })
+        .limit(1);
+      if (pendingError) throw pendingError;
       state.family = null;
       state.membership = null;
       state.people = [];
@@ -279,13 +309,17 @@
       state.expenses = [];
       state.incomes = [];
       state.invites = [];
+      state.joinRequests = [];
+      state.pendingRequest = pendingRows?.[0] || null;
+      state.privacyLocked = false;
       render();
       return;
     }
 
     state.membership = memberships[0];
+    state.pendingRequest = null;
     const familyId = memberships[0].family_id;
-    const [familyRes, peopleRes, categoriesRes, expensesRes, incomesRes] = await Promise.all([
+    const [familyRes, peopleRes, categoriesRes, expensesRes, incomesRes, requestsRes] = await Promise.all([
       client.from("budget_families").select("*").eq("id", familyId).single(),
       client.from("budget_people").select("*").eq("family_id", familyId).order("created_at"),
       client.from("budget_categories").select("*").eq("family_id", familyId).order("scope").order("name"),
@@ -299,7 +333,13 @@
         .from("budget_incomes")
         .select("*, budget_categories(name,color)")
         .eq("family_id", familyId)
-        .order("created_at", { ascending: false })
+        .order("created_at", { ascending: false }),
+      client
+        .from("budget_join_requests")
+        .select("*")
+        .eq("family_id", familyId)
+        .eq("status", "PENDING")
+        .order("requested_at", { ascending: true })
     ]);
 
     if (familyRes.error) throw familyRes.error;
@@ -307,13 +347,16 @@
     if (categoriesRes.error) throw categoriesRes.error;
     if (expensesRes.error) throw expensesRes.error;
     if (incomesRes.error) throw incomesRes.error;
+    if (requestsRes.error) throw requestsRes.error;
 
     state.family = familyRes.data;
     state.people = peopleRes.data || [];
     state.categories = categoriesRes.data || [];
-    state.expenses = expensesRes.data || [];
+    await loadFamilyKey();
+    state.expenses = await hydrateExpenses(expensesRes.data || []);
     state.incomes = incomesRes.data || [];
     state.invites = [];
+    state.joinRequests = requestsRes.data || [];
     render();
   }
 
@@ -332,6 +375,9 @@
       state.error = "Supabase is not configured for this deployment.";
       render();
       return;
+    }
+    if (!document.querySelector("[data-accept-terms]")?.checked) {
+      throw new Error("Please accept the Terms and Data Collection Policy to continue.");
     }
 
     const { error } = await client.auth.signInWithOAuth({
@@ -527,7 +573,15 @@
       <section class="auth card">
         <div class="auth-mark">₹</div>
         <h2>Budget Padmanabham</h2>
-        <p>Shared family expenses, income, categories, and insights.</p>
+        <p>Shared family expenses with Gmail login and browser-side encrypted expense entries.</p>
+        <label class="terms-check">
+          <input type="checkbox" data-accept-terms>
+          <span>I accept the Terms and Data Collection Policy.</span>
+        </label>
+        <div class="legal-copy">
+          <strong>Simple terms</strong>
+          <p>This app stores your Gmail profile, family membership, categories, income settings, invite status, and encrypted expense records. It does not collect passwords, bank logins, card numbers, or location. Expense details are encrypted in your browser with your family privacy password before they are sent to Supabase. The family privacy password is not stored by us, so if all family members lose it, encrypted expenses cannot be recovered.</p>
+        </div>
         <button class="google-button" data-action="google">
           <span class="g-icon">G</span>
           <span>Continue with Gmail</span>
@@ -549,12 +603,24 @@
 
   function setupScreen() {
     const defaultName = state.user?.user_metadata?.full_name || state.user?.email?.split("@")[0] || "";
+    if (state.pendingRequest?.status === "PENDING") {
+      const familyName = state.pendingRequest.budget_families?.name || "the family";
+      return `
+        <section class="auth card">
+          <div class="auth-mark">₹</div>
+          <h2>Waiting for moderator</h2>
+          <p>Your request to join ${escapeHtml(familyName)} was sent. The family moderator needs to approve you before you can enter expenses.</p>
+          <button class="secondary wide" data-action="signout">Sign out</button>
+        </section>
+      `;
+    }
     return `
       <section class="entry-panel">
         <div class="choice-hero">
           <span class="secure-pill">First step</span>
           <h2>Choose how you want to enter</h2>
           <p>Create a new family if you are starting the group. Join an existing family if someone already sent you a Budget code.</p>
+          ${state.pendingRequest?.status === "REJECTED" ? `<p>Your last join request was not approved. You can check with the moderator and send a new request.</p>` : ""}
         </div>
         <div class="setup-grid">
           <form class="card panel setup-card create-choice" data-form="create-family">
@@ -564,6 +630,7 @@
             <label class="field">Family name<input class="input" name="family" value="Padmanabham Family" required></label>
             <label class="field">Your display name<input class="input" name="person" value="${escapeHtml(defaultName)}" required></label>
             <label class="field">Monthly budget<input class="input" name="budget" type="number" value="150000" min="0"></label>
+            <label class="field">Family privacy password<input class="input" name="privacy" type="password" minlength="8" autocomplete="new-password" required><small>Share this only with approved family members. It is not stored in Supabase.</small></label>
             <button class="primary wide" type="submit">Create family</button>
           </form>
           <form class="card panel setup-card join-choice" data-form="join-family">
@@ -572,6 +639,7 @@
             <p class="section-subtitle">Use the one invite code shared by your family.</p>
             <label class="field">Invite code<input class="input code-input" name="code" placeholder="BUDGET-1234" required></label>
             <label class="field">Your display name<input class="input" name="person" value="${escapeHtml(defaultName)}" required></label>
+            <label class="field">Family privacy password<input class="input" name="privacy" type="password" autocomplete="current-password" required><small>Ask the family moderator for this separately from the invite code.</small></label>
             <button class="secondary wide" type="submit">Join with code</button>
           </form>
         </div>
@@ -580,6 +648,9 @@
   }
 
   function appScreen() {
+    if (!state.preview && state.family?.encryption_salt && state.privacyLocked && state.tab !== "family") return privacyUnlockScreen();
+    if (!state.preview && !state.family?.encryption_salt && state.tab !== "family") return privacySetupScreen();
+    if (state.tab === "insights" && !isDesktopMode()) return dashboardScreen();
     return `
       ${state.tab === "dashboard" ? dashboardScreen() : ""}
       ${state.tab === "expenses" ? expensesScreen() : ""}
@@ -627,6 +698,37 @@
           : `<button class="${state.tab === id ? "active" : ""}" data-tab="${id}">${label}</button>`
         ).join("")}
       </nav>
+    `;
+  }
+
+  function privacyUnlockScreen() {
+    return `
+      <section class="auth card">
+        <div class="auth-mark">₹</div>
+        <h2>Unlock family expenses</h2>
+        <p>Enter the family privacy password to decrypt expenses on this device.</p>
+        <form data-form="privacy-unlock">
+          <label class="field">Family privacy password<input class="input" name="privacy" type="password" autocomplete="current-password" required></label>
+          <button class="primary wide" type="submit">Unlock expenses</button>
+        </form>
+      </section>
+    `;
+  }
+
+  function privacySetupScreen() {
+    const isOwner = state.membership?.role === "OWNER";
+    return `
+      <section class="auth card">
+        <div class="auth-mark">₹</div>
+        <h2>Set family privacy</h2>
+        <p>${isOwner ? "Create a family privacy password before entering new expenses. It encrypts expense details in the browser before saving." : "The family moderator needs to create the privacy password before expenses can be entered."}</p>
+        ${isOwner ? `
+          <form data-form="privacy-setup">
+            <label class="field">Family privacy password<input class="input" name="privacy" type="password" minlength="8" autocomplete="new-password" required></label>
+            <button class="primary wide" type="submit">Turn on encryption</button>
+          </form>
+        ` : `<button class="secondary wide" data-tab="family">Open family page</button>`}
+      </section>
     `;
   }
 
@@ -773,25 +875,71 @@
     const categories = totalsBy(monthExpenses(), (e) => e.category_id || "none", (e) => categoryName(e.category_id), (e) => categoryColor(e.category_id));
     const members = totalsBy(monthExpenses(), (e) => e.person_id, (e) => personName(e.person_id), (e) => personColor(e.person_id));
     const months = monthlyHistory();
+    const largest = [...monthExpenses()].sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0)).slice(0, 8);
+    const byDate = totalsBy(monthExpenses(), (e) => e.spent_on, (e) => shortDate(e.spent_on), () => COLORS[3]).sort((a, b) => String(a.key).localeCompare(String(b.key)));
+    const average = monthExpenses().length ? spend / monthExpenses().length : 0;
+    const tabs = [
+      ["overview", "Overview"],
+      ["categories", "Categories"],
+      ["members", "Members"],
+      ["months", "Months"],
+      ["records", "Records"]
+    ];
     return `
+      <section class="insight-header card">
+        <div>
+          <span class="secure-pill">Desktop insights</span>
+          <h2>Family finance insights</h2>
+          <p>Charts are calculated in this browser after encrypted expenses are unlocked.</p>
+        </div>
+        <div class="insight-tabs">
+          ${tabs.map(([id, label]) => `<button class="${state.insightTab === id ? "active" : ""}" data-insight-tab="${id}">${label}</button>`).join("")}
+        </div>
+      </section>
       <section class="metric-grid">
         ${metric("Total balance", money(income - spend), "+ this month")}
         ${metric("Monthly spend", money(spend), `${monthExpenses().length} expenses`)}
         ${metric("Income", money(income), "Active recurring")}
+        ${metric("Average expense", money(average), "Per entry")}
       </section>
-      <section class="dashboard-grid">
-        <div class="card panel">
-          <h2>Category Breakdown</h2>
-          ${donut(categories)}
-          ${miniBars(categories)}
-        </div>
-        <div class="card panel">
-          <h2>Spend by Family Member</h2>
-          ${members.length ? miniBars(members) : emptyState("No member spend", "Add expenses to compare spend.")}
-          <h2 class="mt">Monthly History</h2>
-          ${months.length ? months.map((row) => `<div class="history-row"><span>${row.month}</span><strong>${money(row.total)}</strong></div>`).join("") : emptyState("No history", "Past months appear here.")}
-        </div>
-      </section>
+      ${state.insightTab === "overview" ? `
+        <section class="dashboard-grid">
+          <div class="card panel">
+            <h2>Default chart</h2>
+            ${donut(categories)}
+            ${miniBars(categories)}
+          </div>
+          <div class="card panel">
+            <h2>Daily spend this month</h2>
+            ${byDate.length ? verticalBars(byDate) : emptyState("No daily chart", "Add expenses to see spending by day.")}
+          </div>
+        </section>
+      ` : ""}
+      ${state.insightTab === "categories" ? `
+        <section class="card panel">
+          <h2>Categories sorted by spend</h2>
+          ${categories.length ? insightTable(categories, ["Category", "Entries", "Spend"]) : emptyState("No category spend", "Add expenses with categories.")}
+        </section>
+      ` : ""}
+      ${state.insightTab === "members" ? `
+        <section class="card panel">
+          <h2>Family member spending</h2>
+          ${members.length ? insightTable(members, ["Member", "Entries", "Spend"]) : emptyState("No member spend", "Add expenses to compare members.")}
+        </section>
+      ` : ""}
+      ${state.insightTab === "months" ? `
+        <section class="card panel">
+          <h2>Monthly history</h2>
+          ${months.length ? verticalBars(months.map((row) => ({ name: monthLabel(row.month), total: row.total, color: COLORS[5] }))) : emptyState("No history", "Past months appear here.")}
+          ${months.length ? months.map((row) => `<div class="history-row"><span>${monthLabel(row.month)}</span><strong>${money(row.total)}</strong></div>`).join("") : ""}
+        </section>
+      ` : ""}
+      ${state.insightTab === "records" ? `
+        <section class="card panel">
+          <h2>Largest expenses this month</h2>
+          ${largest.length ? largest.map(expenseRow).join("") : emptyState("No records", "Largest expenses appear after entries are added.")}
+        </section>
+      ` : ""}
     `;
   }
 
@@ -814,6 +962,35 @@
       map.set(key, (map.get(key) || 0) + Number(expense.amount || 0));
     });
     return [...map.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([month, total]) => ({ month, total }));
+  }
+
+  function verticalBars(rows) {
+    const max = Math.max(...rows.map((row) => row.total), 1);
+    return `
+      <div class="vertical-chart">
+        ${rows.slice(-12).map((row) => `
+          <div class="vertical-bar">
+            <i style="height:${Math.max(8, (row.total / max) * 100)}%;background:${row.color || COLORS[0]}"></i>
+            <span>${escapeHtml(row.name || row.month || row.key)}</span>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  function insightTable(rows, headings) {
+    return `
+      <div class="insight-table">
+        <div class="insight-row head">${headings.map((heading) => `<strong>${heading}</strong>`).join("")}</div>
+        ${rows.map((row) => `
+          <div class="insight-row">
+            <span>${escapeHtml(row.name)}</span>
+            <span>${row.count}</span>
+            <strong>${money(row.total)}</strong>
+          </div>
+        `).join("")}
+      </div>
+    `;
   }
 
   function incomeScreen() {
@@ -891,18 +1068,18 @@
     const isOwner = state.membership?.role === "OWNER";
     const inviteCode = state.family?.invite_code || "Code is being prepared";
     const locked = Boolean(state.family?.invite_locked);
+    const pending = state.joinRequests.filter((request) => request.status === "PENDING");
     return `
       <section class="dashboard-grid">
         <div class="card panel">
           <div class="section-head">
             <h2>Family Members</h2>
-            <button class="primary compact" data-modal="person">Add person</button>
+            <span class="secure-pill">Invite approval only</span>
           </div>
           ${state.people.map((person) => `
             <article class="item">
               <span class="avatar">${personInitial(person.display_name)}</span>
-              <div class="item-main"><strong>${escapeHtml(person.display_name)}</strong><span>${person.linked_user_id ? "Signed in member" : "Expense person"}</span></div>
-              <div class="item-actions"><button data-edit-person="${person.id}">Edit</button></div>
+              <div class="item-main"><strong>${escapeHtml(person.display_name)}</strong><span>${person.linked_user_id ? "Signed in member" : "Past expense person"}</span></div>
             </article>
           `).join("")}
         </div>
@@ -923,7 +1100,22 @@
             ${isOwner ? `<button class="${locked ? "primary" : "danger"} wide" data-action="toggle-family-lock">${locked ? "Unlock joining" : "Lock joining"}</button>` : ""}
           </div>
           <p class="muted invite-help">${isOwner ? "You created this family, so only you can lock or unlock new joining." : "You can share the code. Only the family creator can lock or unlock joining."}</p>
+          ${isOwner ? `
+            <hr>
+            <h2>Join requests</h2>
+            ${pending.length ? pending.map((request) => `
+              <article class="join-request">
+                <strong>${escapeHtml(request.display_name)}</strong>
+                <span>${niceDate(String(request.requested_at || todayKey()).slice(0, 10))}</span>
+                <div class="item-actions">
+                  <button class="primary" data-review-request="${request.id}" data-decision="APPROVED">Accept</button>
+                  <button class="danger" data-review-request="${request.id}" data-decision="REJECTED">Reject</button>
+                </div>
+              </article>
+            `).join("") : `<p class="muted">No pending requests.</p>`}
+          ` : ""}
           <hr>
+          <button class="danger wide" data-action="leave-family">Leave family</button>
           <button class="secondary wide" data-action="signout">Sign out</button>
         </aside>
       </section>
@@ -1079,6 +1271,8 @@
     bindForm("income", saveIncome);
     bindForm("category", saveCategory);
     bindForm("person", savePerson);
+    bindForm("privacy-unlock", unlockPrivacy);
+    bindForm("privacy-setup", setupPrivacy);
 
     document.querySelectorAll("[data-edit-expense]").forEach((button) => button.addEventListener("click", () => openModal("expense", button.dataset.editExpense)));
     document.querySelectorAll("[data-delete-expense]").forEach((button) => button.addEventListener("click", run(() => deleteExpense(button.dataset.deleteExpense))));
@@ -1088,7 +1282,13 @@
     document.querySelectorAll("[data-delete-category]").forEach((button) => button.addEventListener("click", run(() => deleteCategory(button.dataset.deleteCategory))));
     document.querySelectorAll("[data-edit-person]").forEach((button) => button.addEventListener("click", () => openModal("person", button.dataset.editPerson)));
     document.querySelector("[data-action='toggle-family-lock']")?.addEventListener("click", run(toggleFamilyLock));
+    document.querySelector("[data-action='leave-family']")?.addEventListener("click", run(leaveFamily));
     document.querySelector("[data-copy-invite]")?.addEventListener("click", run(copyInviteCode));
+    document.querySelectorAll("[data-review-request]").forEach((button) => button.addEventListener("click", run(() => reviewJoinRequest(button.dataset.reviewRequest, button.dataset.decision))));
+    document.querySelectorAll("[data-insight-tab]").forEach((button) => button.addEventListener("click", () => {
+      state.insightTab = button.dataset.insightTab;
+      render();
+    }));
     document.querySelectorAll("[data-category-shortcut]").forEach((button) => button.addEventListener("click", () => {
       const form = button.closest("form");
       const categorySelect = form?.querySelector("select[name='category_id']");
@@ -1171,15 +1371,140 @@
     return `BUDGET-${number.toString(36).toUpperCase().padStart(7, "0").slice(0, 7)}`;
   }
 
+  function isDesktopMode() {
+    return window.matchMedia("(min-width: 900px)").matches;
+  }
+
+  function randomBase64(byteLength) {
+    const bytes = new Uint8Array(byteLength);
+    crypto.getRandomValues(bytes);
+    return bytesToBase64(bytes);
+  }
+
+  function bytesToBase64(bytes) {
+    let binary = "";
+    bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
+    return btoa(binary);
+  }
+
+  function base64ToBytes(value) {
+    const binary = atob(value);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    return bytes;
+  }
+
+  function keyStorageKey(familyId = state.family?.id) {
+    return `${STORAGE_KEY}:family-key:${state.user?.id || "anon"}:${familyId}`;
+  }
+
+  async function deriveFamilyKey(passphrase, saltBase64) {
+    const material = await crypto.subtle.importKey("raw", encoder.encode(passphrase), "PBKDF2", false, ["deriveKey"]);
+    return crypto.subtle.deriveKey(
+      { name: "PBKDF2", salt: base64ToBytes(saltBase64), iterations: 250000, hash: "SHA-256" },
+      material,
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt", "decrypt"]
+    );
+  }
+
+  async function importFamilyKey(rawBase64) {
+    return crypto.subtle.importKey("raw", base64ToBytes(rawBase64), { name: "AES-GCM" }, true, ["encrypt", "decrypt"]);
+  }
+
+  async function rememberFamilyKey(familyId, key) {
+    const raw = await crypto.subtle.exportKey("raw", key);
+    localStorage.setItem(keyStorageKey(familyId), bytesToBase64(new Uint8Array(raw)));
+  }
+
+  async function encryptJson(key, payload) {
+    const iv = new Uint8Array(12);
+    crypto.getRandomValues(iv);
+    const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoder.encode(JSON.stringify(payload)));
+    return `v1.${bytesToBase64(iv)}.${bytesToBase64(new Uint8Array(ciphertext))}`;
+  }
+
+  async function decryptJson(key, value) {
+    const [version, ivBase64, dataBase64] = String(value || "").split(".");
+    if (version !== "v1" || !ivBase64 || !dataBase64) throw new Error("Encrypted expense format is not supported.");
+    const plaintext = await crypto.subtle.decrypt({ name: "AES-GCM", iv: base64ToBytes(ivBase64) }, key, base64ToBytes(dataBase64));
+    return JSON.parse(decoder.decode(plaintext));
+  }
+
+  async function createPrivacySetup(passphrase) {
+    const salt = randomBase64(16);
+    const key = await deriveFamilyKey(passphrase, salt);
+    return { salt, key, check: await encryptJson(key, { check: KEY_CHECK_TEXT }) };
+  }
+
+  async function verifyPrivacyKey(passphrase, salt, check) {
+    const key = await deriveFamilyKey(passphrase, salt);
+    const result = await decryptJson(key, check);
+    if (result.check !== KEY_CHECK_TEXT) throw new Error("Family privacy password is not correct.");
+    return key;
+  }
+
+  async function loadFamilyKey() {
+    state.familyKey = null;
+    state.privacyLocked = false;
+    if (!state.family?.encryption_salt) return;
+    const stored = localStorage.getItem(keyStorageKey(state.family.id));
+    if (!stored) {
+      state.privacyLocked = true;
+      return;
+    }
+    try {
+      state.familyKey = await importFamilyKey(stored);
+    } catch (_) {
+      localStorage.removeItem(keyStorageKey(state.family.id));
+      state.privacyLocked = true;
+    }
+  }
+
+  async function hydrateExpenses(rows) {
+    const hydrated = [];
+    for (const row of rows) {
+      if (!row.encrypted_payload) {
+        hydrated.push(row);
+        continue;
+      }
+      if (!state.familyKey) {
+        hydrated.push({ ...row, title: "Locked expense", amount: 0, note: "", category_id: null, locked: true });
+        state.privacyLocked = true;
+        continue;
+      }
+      try {
+        const decrypted = await decryptJson(state.familyKey, row.encrypted_payload);
+        hydrated.push({ ...row, ...decrypted, encrypted: true });
+      } catch (_) {
+        hydrated.push({ ...row, title: "Locked expense", amount: 0, note: "", category_id: null, locked: true });
+        state.privacyLocked = true;
+      }
+    }
+    return hydrated;
+  }
+
+  async function encryptedExpensePayload(plain) {
+    if (!state.family?.encryption_salt) throw new Error("Please set the family privacy password before entering expenses.");
+    if (!state.familyKey) throw new Error("Please unlock family expenses first.");
+    return encryptJson(state.familyKey, plain);
+  }
+
   async function createFamily(form) {
     const data = Object.fromEntries(new FormData(form).entries());
     const familyName = requireText(data.family || "My Family", "family name", 80);
     const personName = requireText(data.person || "Me", "your display name", 80);
     const budget = data.budget ? boundedNumber(data.budget, "Monthly budget", 0, 999999999) : 0;
+    const privacy = requireText(data.privacy, "a family privacy password", 120);
+    if (privacy.length < 8) throw new Error("Family privacy password must be at least 8 characters.");
+    const privacySetup = await createPrivacySetup(privacy);
 
     if (state.demo) {
       const familyId = crypto.randomUUID();
-      state.family = { id: familyId, name: familyName, currency_code: "INR", monthly_budget: budget, owner_id: state.user.id, invite_code: createInviteCode(), invite_locked: false };
+      state.family = { id: familyId, name: familyName, currency_code: "INR", monthly_budget: budget, owner_id: state.user.id, invite_code: createInviteCode(), invite_locked: false, encryption_salt: privacySetup.salt, encryption_check: privacySetup.check };
+      state.familyKey = privacySetup.key;
+      state.privacyLocked = false;
       state.membership = { family_id: familyId, role: "OWNER" };
       state.people = [{ id: crypto.randomUUID(), family_id: familyId, display_name: personName, linked_user_id: state.user.id }];
       state.categories = [
@@ -1193,10 +1518,20 @@
 
     const { data: family, error: familyError } = await client
       .from("budget_families")
-      .insert({ name: familyName, owner_id: state.user.id, currency_code: "INR", monthly_budget: budget, invite_code: createInviteCode(), invite_locked: false })
+      .insert({
+        name: familyName,
+        owner_id: state.user.id,
+        currency_code: "INR",
+        monthly_budget: budget,
+        invite_code: createInviteCode(),
+        invite_locked: false,
+        encryption_salt: privacySetup.salt,
+        encryption_check: privacySetup.check
+      })
       .select()
       .single();
     if (familyError) throw familyError;
+    await rememberFamilyKey(family.id, privacySetup.key);
 
     const { error: memberError } = await client
       .from("budget_family_users")
@@ -1226,11 +1561,90 @@
     if (state.demo) throw new Error("Invite joining needs Supabase. Preview mode can create a family locally.");
     const code = requireText(data.code, "invite code", 32).toUpperCase();
     const person = requireText(data.person || "Family member", "your display name", 80);
+    const privacy = requireText(data.privacy, "the family privacy password", 120);
+    const { data: securityRows, error: securityError } = await client.rpc("get_budget_invite_security", {
+      invite_code_input: code
+    });
+    if (securityError) throw securityError;
+    const security = securityRows?.[0];
+    if (!security) throw new Error("Invite code is invalid or locked.");
+    if (security.encryption_salt && security.encryption_check) {
+      const key = await verifyPrivacyKey(privacy, security.encryption_salt, security.encryption_check);
+      await rememberFamilyKey(security.family_id, key);
+    }
     const { error } = await client.rpc("join_budget_invite", {
       invite_code_input: code,
       display_name_input: person
     });
     if (error) throw error;
+    await load();
+  }
+
+  async function unlockPrivacy(form) {
+    const data = Object.fromEntries(new FormData(form).entries());
+    const privacy = requireText(data.privacy, "the family privacy password", 120);
+    const key = await verifyPrivacyKey(privacy, state.family.encryption_salt, state.family.encryption_check);
+    await rememberFamilyKey(state.family.id, key);
+    state.familyKey = key;
+    state.privacyLocked = false;
+    await load();
+  }
+
+  async function setupPrivacy(form) {
+    if (state.membership?.role !== "OWNER") throw new Error("Only the family moderator can turn on encryption.");
+    const data = Object.fromEntries(new FormData(form).entries());
+    const privacy = requireText(data.privacy, "a family privacy password", 120);
+    if (privacy.length < 8) throw new Error("Family privacy password must be at least 8 characters.");
+    const privacySetup = await createPrivacySetup(privacy);
+    if (state.demo) {
+      state.family = { ...state.family, encryption_salt: privacySetup.salt, encryption_check: privacySetup.check };
+      state.familyKey = privacySetup.key;
+      state.privacyLocked = false;
+      writeDemo();
+      render();
+      return;
+    }
+    const { error } = await client
+      .from("budget_families")
+      .update({ encryption_salt: privacySetup.salt, encryption_check: privacySetup.check })
+      .eq("id", state.family.id);
+    if (error) throw error;
+    await rememberFamilyKey(state.family.id, privacySetup.key);
+    await load();
+  }
+
+  async function reviewJoinRequest(id, decision) {
+    if (state.membership?.role !== "OWNER") throw new Error("Only the family moderator can review join requests.");
+    if (state.demo) {
+      state.joinRequests = state.joinRequests.map((request) => request.id === id ? { ...request, status: decision } : request);
+      writeDemo();
+      render();
+      return;
+    }
+    const { error } = await client.rpc("review_budget_join_request", {
+      request_id_input: id,
+      decision_input: decision
+    });
+    if (error) throw error;
+    await load();
+  }
+
+  async function leaveFamily() {
+    if (!window.confirm("Leave this family? If you are the moderator, the next moderator will be chosen alphabetically.")) return;
+    if (state.demo) {
+      state.family = null;
+      state.membership = null;
+      state.people = [];
+      state.expenses = [];
+      state.incomes = [];
+      writeDemo();
+      render();
+      return;
+    }
+    const familyId = state.family.id;
+    const { error } = await client.rpc("leave_budget_family", { target_family: familyId });
+    if (error) throw error;
+    localStorage.removeItem(keyStorageKey(familyId));
     await load();
   }
 
@@ -1259,9 +1673,22 @@
       return;
     }
 
+    const encryptedPayload = await encryptedExpensePayload(payload);
+    const databasePayload = {
+      family_id: state.family.id,
+      title: "Encrypted expense",
+      amount: 1,
+      spent_on: todayKey(),
+      person_id: currentUserPerson()?.id || payload.person_id,
+      category_id: null,
+      note: null,
+      entered_by: state.user.id,
+      encrypted_payload: encryptedPayload,
+      encryption_version: 1
+    };
     const query = id
-      ? client.from("budget_expenses").update(payload).eq("id", id)
-      : client.from("budget_expenses").insert(payload);
+      ? client.from("budget_expenses").update(databasePayload).eq("id", id)
+      : client.from("budget_expenses").insert(databasePayload);
     const { error } = await query;
     if (error) throw error;
     state.modal = null;
