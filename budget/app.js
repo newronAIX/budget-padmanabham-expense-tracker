@@ -963,7 +963,7 @@
     const expense = state.expenses.find((item) => item.id === id);
     const dateValue = expense?.spent_on || todayKey();
     const selectedPersonId = defaultExpensePersonId(expense);
-    const categoryShortcuts = topExpenseCategories(6);
+    const categoryShortcuts = topExpenseCategories(3);
     return `
       <form data-form="expense" data-id="${id || ""}">
         <label class="field amount-field">Amount spent<input class="input amount-input" name="amount" type="number" inputmode="decimal" min="1" step="1" value="${escapeHtml(expense?.amount || "")}" placeholder="250" required></label>
@@ -974,7 +974,6 @@
         <label class="field person-field">Person who spent<select class="input" name="person_id" required>${state.people.map((p) => `<option value="${p.id}" ${selectedPersonId === p.id ? "selected" : ""}>${escapeHtml(p.display_name)}</option>`).join("")}</select></label>
         <label class="field category-field">Category<select class="input" name="category_id">${activeExpenseCategories().map((c) => `<option value="${c.id}" ${expense?.category_id === c.id ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select></label>
         <label class="field date-field">Date<input class="input" name="spent_on" type="date" value="${dateValue}" required><small>Today is loaded automatically. Change only if needed.</small></label>
-        <label class="field notes-field">Notes<textarea class="textarea" name="note" placeholder="Optional">${escapeHtml(expense?.note || "")}</textarea></label>
         <div class="modal-actions">
           ${id ? `<button class="danger" type="button" data-delete-expense="${id}">Delete</button>` : ""}
           <button class="primary" type="submit">Save expense</button>
@@ -1226,6 +1225,7 @@
   async function saveExpense(form) {
     const id = form.dataset.id;
     const data = Object.fromEntries(new FormData(form).entries());
+    const existingExpense = id ? state.expenses.find((expense) => expense.id === id) : null;
     const payload = {
       family_id: state.family.id,
       title: requireText(data.title, "what it was for", 120),
@@ -1233,7 +1233,7 @@
       spent_on: safeDate(data.spent_on),
       person_id: data.person_id,
       category_id: data.category_id || null,
-      note: optionalText(data.note, 500),
+      note: Object.hasOwn(data, "note") ? optionalText(data.note, 500) : existingExpense?.note || null,
       entered_by: state.user.id
     };
     if (!state.people.some((person) => person.id === payload.person_id)) throw new Error("Please choose a family member.");

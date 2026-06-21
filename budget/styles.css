@@ -853,6 +853,16 @@ button {
   padding: 18px;
 }
 
+.modal > .section-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: -18px -18px 12px;
+  padding: 18px 18px 10px;
+  background: var(--panel);
+  border-radius: 8px 8px 0 0;
+}
+
 .modal .field {
   padding: 10px;
   border: 1px solid color-mix(in srgb, var(--field-accent) 28%, var(--line));
@@ -945,27 +955,28 @@ button {
 
   .input,
   .textarea {
-    min-height: 56px;
+    min-height: 50px;
     font-size: 16px;
   }
 
   .amount-input {
-    min-height: 68px;
-    font-size: 32px;
+    min-height: 58px;
+    font-size: 30px;
   }
 
   .modal .field {
-    margin-bottom: 11px;
+    margin-bottom: 8px;
+    padding: 8px;
   }
 
   .modal .quick-picks {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
   }
 
   .modal .quick-picks button {
-    min-height: 44px;
+    min-height: 40px;
     padding: 0 6px;
     font-size: 14px;
   }
@@ -1037,9 +1048,15 @@ button {
   .modal {
     width: 100%;
     max-width: 430px;
-    max-height: calc(100vh - 42px);
+    max-height: calc(100dvh - 10px);
     border-radius: 14px 14px 0 0;
-    padding-bottom: max(18px, env(safe-area-inset-bottom));
+    padding: 12px 14px max(12px, env(safe-area-inset-bottom));
+  }
+
+  .modal > .section-head {
+    margin: -12px -14px 8px;
+    padding: 12px 14px 8px;
+    border-bottom: 1px solid var(--line);
   }
 }
 
@@ -1055,5 +1072,44 @@ button {
   .metric strong,
   .income-hero strong {
     font-size: 22px;
+  }
+}
+
+@media (max-width: 900px) and (max-height: 740px) {
+  .modal {
+    max-height: 100dvh;
+    border-radius: 0;
+    padding: 8px 12px max(8px, env(safe-area-inset-bottom));
+  }
+
+  .modal > .section-head {
+    margin: -8px -12px 6px;
+    padding: 8px 12px 6px;
+  }
+
+  .modal .section-head h2 {
+    font-size: 22px;
+  }
+
+  .modal .field {
+    gap: 4px;
+    margin-bottom: 6px;
+    padding: 6px 8px;
+  }
+
+  .modal .input,
+  .modal .textarea {
+    min-height: 44px;
+    padding: 8px 10px;
+  }
+
+  .modal .amount-input {
+    min-height: 52px;
+    font-size: 28px;
+  }
+
+  .modal .shortcut-group,
+  .modal .date-field small {
+    display: none;
   }
 }
