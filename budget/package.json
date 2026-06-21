@@ -1,0 +1,10 @@
+{
+  "name": "budget-padmanabham",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mobile-first family expense tracker.",
+  "scripts": {
+    "check": "node --check app.js",
+    "start": "python3 -m http.server 5188 --bind 127.0.0.1"
+  }
+}
