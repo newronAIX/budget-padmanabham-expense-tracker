@@ -1,5 +1,6 @@
 (function () {
   const STORAGE_KEY = "budget-stitch-demo-v2";
+  const FORM_DRAFT_PREFIX = `${STORAGE_KEY}:draft`;
   const COLORS = ["#1B4332", "#F5B700", "#EE6055", "#3A7CA5", "#7D5BA6", "#2A9D8F", "#9B5D3A", "#6C757D"];
   const EXPENSE_DEFAULTS = ["Groceries", "Milk", "Medicine", "Education", "Fuel", "Temple", "Dining"];
   const INCOME_DEFAULTS = ["Salary", "Rent", "Pension", "Business"];
@@ -603,6 +604,8 @@
 
   function setupScreen() {
     const defaultName = state.user?.user_metadata?.full_name || state.user?.email?.split("@")[0] || "";
+    const createDraft = readFormDraft("create-family");
+    const joinDraft = readFormDraft("join-family");
     if (state.pendingRequest?.status === "PENDING") {
       const familyName = state.pendingRequest.budget_families?.name || "the family";
       return `
@@ -627,19 +630,19 @@
             <span class="choice-number">1</span>
             <h2>Create a family</h2>
             <p class="section-subtitle">Use this when you are the first person setting up the family.</p>
-            <label class="field">Family name<input class="input" name="family" value="Padmanabham Family" required></label>
-            <label class="field">Your display name<input class="input" name="person" value="${escapeHtml(defaultName)}" required></label>
-            <label class="field">Monthly budget<input class="input" name="budget" type="number" value="150000" min="0"></label>
-            <label class="field">Family privacy password<input class="input" name="privacy" type="password" minlength="8" autocomplete="new-password" required><small>Share this only with approved family members. It is not stored in Supabase.</small></label>
+            <label class="field">Family name<input class="input" name="family" value="${escapeHtml(createDraft.family || "Padmanabham Family")}" required></label>
+            <label class="field">Your display name<input class="input" name="person" value="${escapeHtml(createDraft.person || defaultName)}" required></label>
+            <label class="field">Monthly budget<input class="input" name="budget" type="number" value="${escapeHtml(createDraft.budget || "150000")}" min="0"></label>
+            <label class="field">Family privacy password<input class="input" name="privacy" type="password" minlength="8" autocomplete="new-password" value="${escapeHtml(createDraft.privacy || "")}" required><small>Share this only with approved family members. It is not stored in Supabase.</small></label>
             <button class="primary wide" type="submit">Create family</button>
           </form>
           <form class="card panel setup-card join-choice" data-form="join-family">
             <span class="choice-number">2</span>
             <h2>Join existing family</h2>
             <p class="section-subtitle">Use the one invite code shared by your family.</p>
-            <label class="field">Invite code<input class="input code-input" name="code" placeholder="BUDGET-1234" required></label>
-            <label class="field">Your display name<input class="input" name="person" value="${escapeHtml(defaultName)}" required></label>
-            <label class="field">Family privacy password<input class="input" name="privacy" type="password" autocomplete="current-password" required><small>Ask the family moderator for this separately from the invite code.</small></label>
+            <label class="field">Invite code<input class="input code-input" name="code" value="${escapeHtml(joinDraft.code || "")}" placeholder="BUDGET-1234" required></label>
+            <label class="field">Your display name<input class="input" name="person" value="${escapeHtml(joinDraft.person || defaultName)}" required></label>
+            <label class="field">Family privacy password<input class="input" name="privacy" type="password" autocomplete="current-password" value="${escapeHtml(joinDraft.privacy || "")}" required><small>Ask the family moderator for this separately from the invite code.</small></label>
             <button class="secondary wide" type="submit">Join with code</button>
           </form>
         </div>
@@ -702,13 +705,14 @@
   }
 
   function privacyUnlockScreen() {
+    const draft = readFormDraft("privacy-unlock");
     return `
       <section class="auth card">
         <div class="auth-mark">₹</div>
         <h2>Unlock family expenses</h2>
         <p>Enter the family privacy password to decrypt expenses on this device.</p>
         <form data-form="privacy-unlock">
-          <label class="field">Family privacy password<input class="input" name="privacy" type="password" autocomplete="current-password" required></label>
+          <label class="field">Family privacy password<input class="input" name="privacy" type="password" autocomplete="current-password" value="${escapeHtml(draft.privacy || "")}" required></label>
           <button class="primary wide" type="submit">Unlock expenses</button>
         </form>
       </section>
@@ -717,6 +721,7 @@
 
   function privacySetupScreen() {
     const isOwner = state.membership?.role === "OWNER";
+    const draft = readFormDraft("privacy-setup");
     return `
       <section class="auth card">
         <div class="auth-mark">₹</div>
@@ -724,7 +729,7 @@
         <p>${isOwner ? "Create a family privacy password before entering new expenses. It encrypts expense details in the browser before saving." : "The family moderator needs to create the privacy password before expenses can be entered."}</p>
         ${isOwner ? `
           <form data-form="privacy-setup">
-            <label class="field">Family privacy password<input class="input" name="privacy" type="password" minlength="8" autocomplete="new-password" required></label>
+            <label class="field">Family privacy password<input class="input" name="privacy" type="password" minlength="8" autocomplete="new-password" value="${escapeHtml(draft.privacy || "")}" required></label>
             <button class="primary wide" type="submit">Turn on encryption</button>
           </form>
         ` : `<button class="secondary wide" data-tab="family">Open family page</button>`}
@@ -1277,6 +1282,7 @@
     bindForm("person", savePerson);
     bindForm("privacy-unlock", unlockPrivacy);
     bindForm("privacy-setup", setupPrivacy);
+    bindFormDrafts();
 
     document.querySelectorAll("[data-edit-expense]").forEach((button) => button.addEventListener("click", () => openModal("expense", button.dataset.editExpense)));
     document.querySelectorAll("[data-delete-expense]").forEach((button) => button.addEventListener("click", run(() => deleteExpense(button.dataset.deleteExpense))));
@@ -1307,6 +1313,40 @@
 
   function bindForm(name, handler) {
     document.querySelector(`[data-form="${name}"]`)?.addEventListener("submit", runForm(handler));
+  }
+
+  function formDraftKey(name) {
+    return `${FORM_DRAFT_PREFIX}:${state.user?.id || "anon"}:${name}`;
+  }
+
+  function readFormDraft(name) {
+    try {
+      return JSON.parse(sessionStorage.getItem(formDraftKey(name)) || "{}");
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function saveFormDraft(form) {
+    const name = form.dataset.form;
+    if (!["create-family", "join-family", "privacy-unlock", "privacy-setup"].includes(name)) return;
+    const draft = {};
+    form.querySelectorAll("input[name], select[name], textarea[name]").forEach((field) => {
+      if (field.type === "checkbox") draft[field.name] = field.checked ? "1" : "";
+      else draft[field.name] = field.value;
+    });
+    sessionStorage.setItem(formDraftKey(name), JSON.stringify(draft));
+  }
+
+  function clearFormDraft(name) {
+    sessionStorage.removeItem(formDraftKey(name));
+  }
+
+  function bindFormDrafts() {
+    document.querySelectorAll("[data-form]").forEach((form) => {
+      form.addEventListener("input", () => saveFormDraft(form));
+      form.addEventListener("change", () => saveFormDraft(form));
+    });
   }
 
   function openModal(type, id) {
@@ -1518,6 +1558,7 @@
         ...INCOME_DEFAULTS.map((name, index) => ({ id: crypto.randomUUID(), family_id: familyId, name, scope: "INCOME", color: COLORS[(index + 3) % COLORS.length] }))
       ];
       writeDemo();
+      clearFormDraft("create-family");
       render();
       return;
     }
@@ -1550,6 +1591,7 @@
     if (personError) throw personError;
 
     await seedDefaultCategories(family.id);
+    clearFormDraft("create-family");
     await load();
   }
 
@@ -1583,6 +1625,7 @@
       display_name_input: person
     });
     if (error) throw error;
+    clearFormDraft("join-family");
     await load();
   }
 
@@ -1593,6 +1636,7 @@
     await rememberFamilyKey(state.family.id, key);
     state.familyKey = key;
     state.privacyLocked = false;
+    clearFormDraft("privacy-unlock");
     await load();
   }
 
@@ -1607,6 +1651,7 @@
       state.familyKey = privacySetup.key;
       state.privacyLocked = false;
       writeDemo();
+      clearFormDraft("privacy-setup");
       render();
       return;
     }
@@ -1616,6 +1661,7 @@
       .eq("id", state.family.id);
     if (error) throw error;
     await rememberFamilyKey(state.family.id, privacySetup.key);
+    clearFormDraft("privacy-setup");
     await load();
   }
 
