@@ -170,6 +170,98 @@ button {
   min-width: 0;
 }
 
+.activity-card {
+  overflow: hidden;
+  padding: 0;
+}
+
+.activity-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 16px 8px;
+}
+
+.activity-head h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.activity-link {
+  min-height: 34px;
+  padding: 0 2px;
+  background: transparent;
+  color: #7b5600;
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.activity-list {
+  display: grid;
+}
+
+.activity-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 16px;
+  border-top: 1px solid var(--line);
+}
+
+.activity-row:first-child {
+  border-top: 0;
+}
+
+.activity-spender {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  font-size: 17px;
+  font-weight: 950;
+}
+
+.activity-main {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.activity-main strong,
+.activity-main span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-main strong {
+  font-size: 17px;
+  line-height: 1.2;
+}
+
+.activity-main span {
+  color: #555b55;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.activity-side {
+  display: grid;
+  justify-items: end;
+  min-width: 72px;
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-side strong {
+  font-size: 18px;
+  line-height: 1.15;
+}
+
 .sidebar {
   position: sticky;
   top: 0;
@@ -1485,6 +1577,45 @@ button {
 
   .panel {
     padding: 16px;
+  }
+
+  .activity-card {
+    padding: 0;
+  }
+
+  .activity-head {
+    padding: 14px 14px 6px;
+  }
+
+  .activity-row {
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: 10px;
+    padding: 12px 14px;
+  }
+
+  .activity-spender {
+    width: 40px;
+    height: 40px;
+    border-radius: 9px;
+    font-size: 16px;
+  }
+
+  .activity-main strong {
+    font-size: 16px;
+  }
+
+  .activity-main span {
+    font-size: 12px;
+  }
+
+  .activity-side {
+    grid-column: 2;
+    justify-items: start;
+    min-width: 0;
+  }
+
+  .activity-side strong {
+    font-size: 15px;
   }
 
   .setup-grid,

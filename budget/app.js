@@ -871,11 +871,14 @@
         ${metric("Money left", money(savings), income ? "Income minus expenses" : "Add income to track balance")}
       </section>
       <section class="dashboard-grid">
-        <div class="card panel recent-panel">
-          <div class="section-head">
-            <h2>Recent expenses</h2>
+        <div class="card panel recent-panel activity-card">
+          <div class="activity-head">
+            <h2>Recent Activity</h2>
+            <button class="activity-link" data-tab="expenses">ALL</button>
           </div>
-          ${recent.length ? recent.map((expense) => expenseRow(expense, { compact: true })).join("") : emptyState("No expenses yet", "Tap Add expense and record the first one.")}
+          <div class="activity-list">
+            ${recent.length ? recent.map(recentActivityRow).join("") : emptyState("No expenses yet", "Tap Add expense and record the first one.")}
+          </div>
         </div>
         <aside class="card panel">
           <h2>Monthly picture</h2>
@@ -905,6 +908,39 @@
 
   function metric(label, value, sub) {
     return `<article class="metric card"><span>${label}</span><strong>${value}</strong><small>${sub}</small></article>`;
+  }
+
+  function recentActivityRow(expense) {
+    const category = expense.budget_categories?.name || categoryName(expense.category_id);
+    const color = expense.budget_categories?.color || categoryColor(expense.category_id);
+    const person = expense.budget_people?.display_name || personName(expense.person_id);
+    return `
+      <article class="activity-row">
+        <span class="activity-spender" title="${escapeHtml(person)}" aria-label="${escapeHtml(person)}" style="background:${softColor(color)};color:${color}">${personInitial(person)}</span>
+        <div class="activity-main">
+          <strong title="${escapeHtml(expense.title)}">${escapeHtml(expense.title)}</strong>
+          <span>${escapeHtml(person)} · ${escapeHtml(category)} · ${activityWhen(expense)}</span>
+        </div>
+        <div class="activity-side">
+          <strong>-${money(expense.amount)}</strong>
+        </div>
+      </article>
+    `;
+  }
+
+  function activityWhen(expense) {
+    if (expense.spent_on === todayKey()) {
+      return "Today";
+    }
+    if (expense.spent_on === relativeDateKey(-1)) return "Yesterday";
+    return shortDate(expense.spent_on);
+  }
+
+  function relativeDateKey(offsetDays) {
+    const date = new Date(`${todayKey()}T00:00:00`);
+    date.setDate(date.getDate() + offsetDays);
+    date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+    return date.toISOString().slice(0, 10);
   }
 
   function budgetRows() {
