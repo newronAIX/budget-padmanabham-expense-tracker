@@ -170,9 +170,9 @@ button {
   min-width: 0;
 }
 
-.activity-card {
-  overflow: hidden;
-  padding: 0;
+.activity-block {
+  min-width: 0;
+  margin-bottom: 16px;
 }
 
 .activity-head {
@@ -180,7 +180,7 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 16px 16px 8px;
+  padding: 0 0 10px;
 }
 
 .activity-head h2 {
@@ -202,9 +202,15 @@ button {
   display: grid;
 }
 
+.activity-list-card {
+  overflow: hidden;
+  border-radius: 12px;
+  box-shadow: none;
+}
+
 .activity-row {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-columns: 44px minmax(0, 1fr) max-content;
   gap: 12px;
   align-items: center;
   padding: 14px 16px;
@@ -231,34 +237,17 @@ button {
   gap: 3px;
 }
 
-.activity-title-line,
+.activity-main strong,
 .activity-main span {
   min-width: 0;
   overflow: hidden;
-}
-
-.activity-title-line {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.activity-title-line strong {
-  min-width: 0;
-  overflow: hidden;
-  flex: 1 1 auto;
-  font-size: 17px;
-  line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.activity-title-line b {
-  flex: 0 0 auto;
-  font-size: 16px;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.15;
-  white-space: nowrap;
+.activity-main strong {
+  font-size: 17px;
+  line-height: 1.2;
 }
 
 .activity-main span {
@@ -267,6 +256,78 @@ button {
   font-weight: 750;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.activity-side {
+  min-width: 62px;
+  display: grid;
+  justify-items: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-side strong {
+  font-size: 15px;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.activity-side .positive {
+  color: var(--primary);
+}
+
+.visual-stage {
+  width: 440px;
+  height: 356px;
+  overflow: hidden;
+  padding: 10px 8px 0 18px;
+  border-left: 4px solid #7367f0;
+  background: #f7f7ff;
+}
+
+.visual-stage .stitch-reference-card {
+  width: 410px;
+  margin: 0;
+  border-color: #c7cec7;
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+.visual-stage .activity-head h2 {
+  color: var(--primary);
+  font-size: 24px;
+}
+
+.visual-stage .activity-link {
+  color: #7a5200;
+  font-size: 12px;
+}
+
+.visual-stage .activity-row {
+  grid-template-columns: 48px minmax(0, 1fr) max-content;
+  gap: 16px;
+  padding: 20px 18px;
+}
+
+.visual-stage .activity-spender {
+  width: 48px;
+  height: 48px;
+  border-radius: 9px;
+}
+
+.visual-stage .activity-main strong {
+  font-size: 19px;
+}
+
+.visual-stage .activity-main span {
+  font-size: 14px;
+}
+
+.visual-stage .activity-side {
+  min-width: 96px;
+}
+
+.visual-stage .activity-side strong {
+  font-size: 18px;
 }
 
 .sidebar {
@@ -1586,16 +1647,12 @@ button {
     padding: 16px;
   }
 
-  .activity-card {
-    padding: 0;
-  }
-
   .activity-head {
-    padding: 14px 14px 6px;
+    padding: 0 0 8px;
   }
 
   .activity-row {
-    grid-template-columns: 40px minmax(0, 1fr);
+    grid-template-columns: 40px minmax(0, 1fr) max-content;
     gap: 9px;
     padding: 12px;
   }
@@ -1607,11 +1664,15 @@ button {
     font-size: 16px;
   }
 
-  .activity-title-line strong {
+  .activity-main strong {
     font-size: 16px;
   }
 
-  .activity-title-line b {
+  .activity-side {
+    min-width: 54px;
+  }
+
+  .activity-side strong {
     font-size: 13px;
   }
 

@@ -10,6 +10,7 @@
   const config = window.BUDGET_CONFIG || {};
   const params = new URLSearchParams(window.location.search);
   const previewMode = params.get("preview") === "1";
+  const visualMode = previewMode && params.get("visual") === "activity";
   const initialTab = ["dashboard", "expenses", "insights", "income", "categories", "family"].includes(params.get("tab"))
     ? params.get("tab")
     : "dashboard";
@@ -625,6 +626,12 @@
   }
 
   function render() {
+    if (visualMode) {
+      app.innerHTML = visualActivityScreen();
+      bind();
+      return;
+    }
+
     const needsConfig = !hasSupabase && !state.preview;
     const needsAuth = !state.user;
     const needsSetup = state.user && !state.family;
@@ -646,6 +653,41 @@
       refreshAfterModal = false;
       queueRefresh(0);
     }
+  }
+
+  function visualActivityScreen() {
+    return `
+      <main class="visual-stage">
+        <div class="activity-block">
+          <div class="activity-head">
+            <h2>Recent Activity</h2>
+            <button class="activity-link" type="button">SEE ALL</button>
+          </div>
+          <div class="card activity-list-card stitch-reference-card">
+            <div class="activity-list">
+              ${stitchActivityRow("S", "Spencer's Retail", "Groceries", "Today, 2:14 PM", "-₹4,280", "#dce7e7", "#0b3d2c")}
+              ${stitchActivityRow("U", "Urban Company", "Services", "Yesterday", "-₹1,200", "#dfe5e5", "#0b3d2c")}
+              ${stitchActivityRow("M", "Monthly Salary", "Income", "Oct 01", "+₹1,25,000", "#dce7e0", "#0b3d2c", true)}
+            </div>
+          </div>
+        </div>
+      </main>
+    `;
+  }
+
+  function stitchActivityRow(initial, title, category, when, amount, background, color, positive = false) {
+    return `
+      <article class="activity-row">
+        <span class="activity-spender stitch-icon" style="background:${background};color:${color}">${escapeHtml(initial)}</span>
+        <div class="activity-main">
+          <strong title="${escapeHtml(title)}">${escapeHtml(title)}</strong>
+          <span>${escapeHtml(category)} · ${escapeHtml(when)}</span>
+        </div>
+        <div class="activity-side">
+          <strong class="${positive ? "positive" : ""}">${escapeHtml(amount)}</strong>
+        </div>
+      </article>
+    `;
   }
 
   function topbar() {
@@ -866,13 +908,15 @@
         ${metric("Money left", money(savings), income ? "Income minus expenses" : "Add income to track balance")}
       </section>
       <section class="dashboard-grid">
-        <div class="card panel recent-panel activity-card">
+        <div class="activity-block recent-panel">
           <div class="activity-head">
             <h2>Recent Activity</h2>
-            <button class="activity-link" data-tab="expenses">ALL</button>
+            <button class="activity-link" data-tab="expenses">SEE ALL</button>
           </div>
-          <div class="activity-list">
-            ${recent.length ? recent.map(recentActivityRow).join("") : emptyState("No expenses yet", "Tap Add expense and record the first one.")}
+          <div class="card activity-list-card">
+            <div class="activity-list">
+              ${recent.length ? recent.map(recentActivityRow).join("") : emptyState("No expenses yet", "Tap Add expense and record the first one.")}
+            </div>
           </div>
         </div>
         <aside class="card panel">
@@ -913,11 +957,11 @@
       <article class="activity-row">
         <span class="activity-spender" title="${escapeHtml(person)}" aria-label="${escapeHtml(person)}" style="background:${softColor(color)};color:${color}">${personInitial(person)}</span>
         <div class="activity-main">
-          <div class="activity-title-line">
-            <strong title="${escapeHtml(expense.title)}">${escapeHtml(expense.title)}</strong>
-            <b>-${money(expense.amount)}</b>
-          </div>
+          <strong title="${escapeHtml(expense.title)}">${escapeHtml(expense.title)}</strong>
           <span>${escapeHtml(person)} · ${escapeHtml(category)} · ${activityWhen(expense)}</span>
+        </div>
+        <div class="activity-side">
+          <strong>-${money(expense.amount)}</strong>
         </div>
       </article>
     `;
