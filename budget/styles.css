@@ -1279,10 +1279,12 @@ button {
 }
 
 .all-expenses-screen {
+  min-width: 0;
   display: grid;
   gap: 12px;
   max-width: 720px;
   margin: 0 auto;
+  overflow-x: clip;
   padding-bottom: 18px;
 }
 
@@ -1334,9 +1336,11 @@ button {
 }
 
 .expense-period-tabs {
+  min-width: 0;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
+  overflow: hidden;
   padding: 5px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1392,6 +1396,7 @@ button {
 }
 
 .expense-stat-strip {
+  min-width: 0;
   display: grid;
   grid-template-columns: 1.25fr 0.75fr 1fr;
   gap: 8px;
@@ -1399,6 +1404,7 @@ button {
 
 .expense-stat-card {
   min-width: 0;
+  overflow: hidden;
   padding: 12px 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1429,6 +1435,7 @@ button {
 }
 
 .expense-filter-row {
+  min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 104px;
   gap: 8px;
@@ -1538,6 +1545,7 @@ button {
 }
 
 .stitch-expense-list {
+  min-width: 0;
   max-height: min(54vh, 620px);
   padding: 0;
   overflow: hidden auto;
@@ -1548,6 +1556,7 @@ button {
 }
 
 .expense-item.stitch-expense-item {
+  min-width: 0;
   grid-template-columns: 42px minmax(0, 1fr) auto;
   gap: 10px;
   padding: 12px;
@@ -3354,10 +3363,10 @@ button {
   }
 
   .all-expenses-screen {
-    width: min(100%, 350px);
-    max-width: 350px;
+    width: 100%;
+    max-width: 100%;
     margin-inline: 0;
-    justify-self: start;
+    justify-self: stretch;
     gap: 10px;
     padding: 2px 0 92px;
   }
