@@ -1003,7 +1003,7 @@
     if (isCompact) {
       return `
         <article class="item compact-expense-item">
-          <span class="avatar" style="background:${softColor(color)};color:${color}">${personInitial(person)}</span>
+          <span class="avatar" title="${escapeHtml(person)}" aria-label="${escapeHtml(person)}" style="background:${softColor(color)};color:${color}">${personInitial(person)}</span>
           <div class="item-main">
             <strong class="expense-title-tag" title="${escapeHtml(expense.title)}">${escapeHtml(expense.title)}</strong>
             <span class="compact-meta"><b>${money(expense.amount)}</b><i>${escapeHtml(category)}</i></span>
@@ -1014,10 +1014,10 @@
 
     return `
       <article class="item expense-item">
-        <span class="avatar" style="background:${softColor(color)};color:${color}">${personInitial(person)}</span>
+        <span class="avatar" title="${escapeHtml(person)}" aria-label="${escapeHtml(person)}" style="background:${softColor(color)};color:${color}">${personInitial(person)}</span>
         <div class="item-main">
           <strong class="expense-title-tag" title="${escapeHtml(expense.title)}">${escapeHtml(expense.title)}</strong>
-          <span class="expense-meta"><i>${escapeHtml(category)}</i><i>${escapeHtml(person)}</i><i>${niceDate(expense.spent_on)}</i></span>
+          <span class="expense-meta"><i>${escapeHtml(category)}</i><i>${niceDate(expense.spent_on)}</i></span>
           ${expense.note ? `<small>${escapeHtml(expense.note)}</small>` : ""}
         </div>
         <div class="item-side">
