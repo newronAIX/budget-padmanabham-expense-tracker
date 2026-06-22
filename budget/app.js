@@ -930,28 +930,26 @@
             <h2>Expenses</h2>
             <p class="section-subtitle">${niceDate(start)} to ${niceDate(end)} · ${list.length} entries · ${money(total)}</p>
           </div>
-          <button class="primary compact" data-modal="expense">Add expense</button>
         </div>
         <div class="month-switcher">
-          <button class="secondary" data-month-shift="-1">Previous</button>
+          <button class="secondary" data-month-shift="-1" aria-label="Previous month">Prev</button>
           <select class="input" data-month-select>
             ${availableMonthKeys().map((key) => `<option value="${key}" ${month === key ? "selected" : ""}>${key === currentMonth() ? "Current - " : ""}${monthLabel(key)}</option>`).join("")}
           </select>
-          <button class="secondary" data-month-current ${isCurrent ? "disabled" : ""}>This month</button>
         </div>
         <div class="range-grid">
           <label class="field">From<input class="input" type="date" data-date-from value="${escapeHtml(start)}"></label>
           <label class="field">To<input class="input" type="date" data-date-to value="${escapeHtml(end)}"></label>
         </div>
-        <div class="month-note">${start === monthStart(month) && end === monthEnd(month) ? (isCurrent ? "New month starts fresh automatically on the 1st." : "Previous month expenses stay separate from this month.") : "Custom range is active. Analysis below follows these dates."}</div>
+        <div class="month-note">${start === monthStart(month) && end === monthEnd(month) ? (isCurrent ? "Starts fresh on the 1st." : "Previous month is kept separate.") : "Custom range active."}</div>
         <section class="expense-analysis-grid">
           <div class="analysis-panel">
             <strong>Who spent how much</strong>
-            ${members.length ? miniBars(members.slice(0, 6)) : `<p>No member spend in this range.</p>`}
+            ${members.length ? miniBars(members.slice(0, 4)) : `<p>No member spend in this range.</p>`}
           </div>
           <div class="analysis-panel">
             <strong>By category</strong>
-            ${categories.length ? miniBars(categories.slice(0, 6)) : `<p>No category spend in this range.</p>`}
+            ${categories.length ? miniBars(categories.slice(0, 4)) : `<p>No category spend in this range.</p>`}
           </div>
         </section>
         <div class="toolbar expense-toolbar">

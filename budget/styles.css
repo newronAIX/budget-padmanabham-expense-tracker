@@ -735,11 +735,12 @@ button {
 
 .range-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
 .range-grid .field {
+  min-width: 0;
   margin-bottom: 0;
 }
 
@@ -943,7 +944,7 @@ button {
 
 .month-switcher {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: 82px minmax(0, 1fr);
   gap: 8px;
   margin: 12px 0;
 }
@@ -1429,7 +1430,45 @@ button {
   }
 
   .month-switcher {
+    grid-template-columns: 52px minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .month-switcher button {
+    min-height: 44px;
+    padding: 0 8px;
+    font-size: 13px;
+  }
+
+  .month-switcher .input {
+    min-width: 0;
+    min-height: 44px;
+    padding: 8px 10px;
+  }
+
+  .range-grid {
+    gap: 8px;
+  }
+
+  .range-grid .field {
+    gap: 5px;
+    font-size: 14px;
+  }
+
+  .range-grid .input {
+    min-width: 0;
+    min-height: 44px;
+    padding: 8px 8px;
+    font-size: 14px;
+  }
+
+  .expense-analysis-grid {
     grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .analysis-panel {
+    padding: 11px;
   }
 
   .archive-card button {
