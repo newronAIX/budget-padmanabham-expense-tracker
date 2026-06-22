@@ -204,7 +204,7 @@ button {
 
 .activity-row {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) auto;
+  grid-template-columns: 44px minmax(0, 1fr);
   gap: 12px;
   align-items: center;
   padding: 14px 16px;
@@ -231,35 +231,42 @@ button {
   gap: 3px;
 }
 
-.activity-main strong,
+.activity-title-line,
 .activity-main span {
   min-width: 0;
   overflow: hidden;
+}
+
+.activity-title-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.activity-title-line strong {
+  min-width: 0;
+  overflow: hidden;
+  flex: 1 1 auto;
+  font-size: 17px;
+  line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.activity-main strong {
-  font-size: 17px;
-  line-height: 1.2;
+.activity-title-line b {
+  flex: 0 0 auto;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  white-space: nowrap;
 }
 
 .activity-main span {
   color: #555b55;
   font-size: 13px;
   font-weight: 750;
-}
-
-.activity-side {
-  display: grid;
-  justify-items: end;
-  min-width: 72px;
-  font-variant-numeric: tabular-nums;
-}
-
-.activity-side strong {
-  font-size: 18px;
-  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar {
@@ -1589,8 +1596,8 @@ button {
 
   .activity-row {
     grid-template-columns: 40px minmax(0, 1fr);
-    gap: 10px;
-    padding: 12px 14px;
+    gap: 9px;
+    padding: 12px;
   }
 
   .activity-spender {
@@ -1600,22 +1607,16 @@ button {
     font-size: 16px;
   }
 
-  .activity-main strong {
+  .activity-title-line strong {
     font-size: 16px;
+  }
+
+  .activity-title-line b {
+    font-size: 13px;
   }
 
   .activity-main span {
     font-size: 12px;
-  }
-
-  .activity-side {
-    grid-column: 2;
-    justify-items: start;
-    min-width: 0;
-  }
-
-  .activity-side strong {
-    font-size: 15px;
   }
 
   .setup-grid,
@@ -1798,7 +1799,7 @@ button {
     max-width: 390px;
     margin: 0 auto;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 2px;
     padding: 8px 8px max(8px, env(safe-area-inset-bottom));
     background: rgba(249, 249, 244, 0.96);
@@ -1813,6 +1814,10 @@ button {
     color: var(--muted);
     font-size: 10px;
     font-weight: 900;
+  }
+
+  .bottom-nav .nav-spacer {
+    min-width: 0;
   }
 
   .bottom-nav button.active {

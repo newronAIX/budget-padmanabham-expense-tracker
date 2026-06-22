@@ -797,18 +797,13 @@
   }
 
   function bottomNav() {
-    const items = [
-      ["dashboard", "Home"],
-      ["expenses", "Spend"],
-      ["add", "Add"],
-      ["income", "Income"]
-    ];
     return `
       <nav class="bottom-nav">
-        ${items.map(([id, label]) => id === "add"
-          ? `<button class="nav-add" data-modal="expense">${label}</button>`
-          : `<button class="${state.tab === id ? "active" : ""}" data-tab="${id}">${label}</button>`
-        ).join("")}
+        <button class="${state.tab === "dashboard" ? "active" : ""}" data-tab="dashboard">Home</button>
+        <button class="${state.tab === "expenses" ? "active" : ""}" data-tab="expenses">Spend</button>
+        <button class="nav-add" data-modal="expense">Add</button>
+        <span class="nav-spacer" aria-hidden="true"></span>
+        <button class="${state.tab === "income" ? "active" : ""}" data-tab="income">Income</button>
       </nav>
     `;
   }
@@ -918,11 +913,11 @@
       <article class="activity-row">
         <span class="activity-spender" title="${escapeHtml(person)}" aria-label="${escapeHtml(person)}" style="background:${softColor(color)};color:${color}">${personInitial(person)}</span>
         <div class="activity-main">
-          <strong title="${escapeHtml(expense.title)}">${escapeHtml(expense.title)}</strong>
+          <div class="activity-title-line">
+            <strong title="${escapeHtml(expense.title)}">${escapeHtml(expense.title)}</strong>
+            <b>-${money(expense.amount)}</b>
+          </div>
           <span>${escapeHtml(person)} · ${escapeHtml(category)} · ${activityWhen(expense)}</span>
-        </div>
-        <div class="activity-side">
-          <strong>-${money(expense.amount)}</strong>
         </div>
       </article>
     `;
