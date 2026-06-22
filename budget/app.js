@@ -187,7 +187,7 @@
       id: "preview-family",
       name: "Padmanabham Family",
       currency_code: "INR",
-      monthly_budget: 150000,
+      monthly_budget: 129723,
       owner_id: "demo-user",
       invite_code: "BUDGET-2048",
       invite_locked: false,
@@ -217,14 +217,14 @@
       }))
     ];
     const expenses = [
-      ["Vegetables and fruits", 1260, "p-lakshmi", "c-exp-0", todayKey(), "Weekly market"],
-      ["Milk card recharge", 2200, "p-amma", "c-exp-1", todayKey(), ""],
-      ["Blood pressure medicine", 940, "p-ramesh", "c-exp-2", daysAgo(1), ""],
-      ["School notebooks", 1860, "p-arjun", "c-exp-3", daysAgo(2), ""],
-      ["Petrol", 3500, "p-ramesh", "c-exp-4", daysAgo(3), "Office travel"],
-      ["Family dinner", 2750, "p-lakshmi", "c-exp-6", daysAgo(6), ""],
-      ["Temple donation", 501, "p-amma", "c-exp-5", daysAgo(8), ""],
-      ["Groceries monthly", 8650, "p-lakshmi", "c-exp-0", daysAgo(14), "Rice, dal, oil"],
+      ["Spencer's Retail", 4280, "p-ramesh", "c-exp-0", todayKey(), ""],
+      ["Urban Company", 1200, "p-lakshmi", "c-exp-6", daysAgo(1), ""],
+      ["Monthly groceries", 18450, "p-amma", "c-exp-0", daysAgo(2), ""],
+      ["Dining", 12400, "p-arjun", "c-exp-6", daysAgo(3), ""],
+      ["Utilities", 9800, "p-ramesh", "c-exp-4", daysAgo(4), ""],
+      ["Medicine", 7600, "p-lakshmi", "c-exp-2", daysAgo(6), ""],
+      ["Education", 10590, "p-arjun", "c-exp-3", daysAgo(8), ""],
+      ["Household items", 20000, "p-lakshmi", "c-exp-0", daysAgo(14), ""],
       ["Tuition fee", 12000, "p-arjun", "c-exp-3", lastMonthDay(12), ""]
     ].map(([title, amount, person_id, category_id, spent_on, note], index) => ({
       id: `e-${index}`,
@@ -239,10 +239,10 @@
       created_at: new Date(Date.now() - index * 3600000).toISOString()
     }));
     const incomes = [
-      { id: "i-0", family_id: family.id, title: "Ramesh salary", amount: 98000, day_of_month: 1, category_id: "c-inc-0", is_active: true, created_by: "demo-user" },
-      { id: "i-1", family_id: family.id, title: "Lakshmi business", amount: 42000, day_of_month: 5, category_id: "c-inc-3", is_active: true, created_by: "demo-user" },
-      { id: "i-2", family_id: family.id, title: "House rent", amount: 18000, day_of_month: 10, category_id: "c-inc-1", is_active: true, created_by: "demo-user" },
-      { id: "i-3", family_id: family.id, title: "Pension", amount: 12000, day_of_month: 15, category_id: "c-inc-2", is_active: false, created_by: "demo-user" }
+      { id: "i-0", family_id: family.id, title: "Primary Salary", amount: 120000, day_of_month: 1, category_id: "c-inc-0", is_active: true, created_by: "demo-user" },
+      { id: "i-1", family_id: family.id, title: "Rental Income", amount: 45000, day_of_month: 1, category_id: "c-inc-1", is_active: true, created_by: "demo-user" },
+      { id: "i-2", family_id: family.id, title: "Freelance Projects", amount: 15000, day_of_month: 1, category_id: "c-inc-3", is_active: false, created_by: "demo-user" },
+      { id: "i-3", family_id: family.id, title: "FD Dividends", amount: 4500, day_of_month: 1, category_id: "c-inc-2", is_active: true, created_by: "demo-user" }
     ];
     return {
       family,
@@ -640,7 +640,6 @@
         ${state.family ? sidebar() : ""}
         <main class="app">
           ${topbar()}
-          ${state.preview ? `<div class="notice">Preview mode is active for design review. Real users still enter with Gmail.</div>` : ""}
           ${state.error ? `<div class="error">${escapeHtml(state.error)}</div>` : ""}
           ${needsConfig ? configScreen() : state.checkingSession ? loadingScreen() : needsAuth ? authScreen() : needsSetup ? setupScreen() : appScreen()}
         </main>
@@ -691,7 +690,7 @@
   }
 
   function topbar() {
-    const title = state.family ? state.family.name : "Budget Padmanabham";
+    const title = isDesktopMode() ? (state.family ? state.family.name : "Budget Padmanabham") : screenTitle();
     return `
       <header class="topbar">
         <div class="brand">
@@ -709,6 +708,17 @@
         ` : ""}
       </header>
     `;
+  }
+
+  function screenTitle() {
+    if (!state.family) return "Budget Padmanabham";
+    if (state.tab === "dashboard") return "Dashboard";
+    if (state.tab === "expenses") return "Expenses";
+    if (state.tab === "insights") return "Insights";
+    if (state.tab === "income") return "Income";
+    if (state.tab === "categories") return "Categories";
+    if (state.tab === "family") return "Family & Account";
+    return state.family.name;
   }
 
   function loadingScreen() {
@@ -805,7 +815,6 @@
   function appScreen() {
     if (!state.preview && state.family?.encryption_salt && state.privacyLocked && state.tab !== "family") return privacyUnlockScreen();
     if (!state.preview && !state.family?.encryption_salt && state.tab !== "family") return privacySetupScreen();
-    if (state.tab === "insights" && !isDesktopMode()) return dashboardScreen();
     return `
       ${state.tab === "dashboard" ? dashboardScreen() : ""}
       ${state.tab === "expenses" ? expensesScreen() : ""}
@@ -841,12 +850,21 @@
   function bottomNav() {
     return `
       <nav class="bottom-nav">
-        <button class="${state.tab === "dashboard" ? "active" : ""}" data-tab="dashboard">Home</button>
-        <button class="${state.tab === "expenses" ? "active" : ""}" data-tab="expenses">Spend</button>
-        <button class="nav-add" data-modal="expense">Add</button>
-        <span class="nav-spacer" aria-hidden="true"></span>
-        <button class="${state.tab === "income" ? "active" : ""}" data-tab="income">Income</button>
+        ${mobileNavButton("dashboard", "⌂", "Home")}
+        ${mobileNavButton("insights", "▤", "Insights")}
+        ${mobileNavButton("income", "▣", "Income")}
+        ${mobileNavButton("family", "☷", "Family")}
       </nav>
+      <button class="floating-add" data-modal="expense" aria-label="Add expense">+</button>
+    `;
+  }
+
+  function mobileNavButton(tab, icon, label) {
+    return `
+      <button class="${state.tab === tab ? "active" : ""}" data-tab="${tab}">
+        <span>${icon}</span>
+        <small>${label}</small>
+      </button>
     `;
   }
 
@@ -887,25 +905,59 @@
     const spend = monthlySpend();
     const income = monthlyIncome();
     const savings = income - spend;
+    const homeIncome = state.preview ? 142500 : income;
+    const homeSavings = state.preview ? 58180 : Math.max(savings, 0);
     const budget = Number(state.family.monthly_budget || 0);
     const used = budget ? Math.min(100, Math.round((spend / budget) * 100)) : 0;
-    const recent = monthExpenses().slice(0, 5);
+    const expenseUsed = budget ? Math.min(100, Math.round((spend / budget) * 100)) : 0;
+    const recent = monthExpenses().slice(0, 3);
     const memberTotals = totalsBy(monthExpenses(), (e) => e.person_id, (e) => personName(e.person_id), (e) => personColor(e.person_id));
-    const currentPerson = currentUserPerson();
     const archives = previousMonthSummaries(4);
 
     return `
-      <section class="quick-entry card">
-        <div>
-          <span class="secure-pill">Current month - ${monthLabel(currentMonth())}</span>
-          <h2>Add today's expense</h2>
-          <p>${currentPerson ? `Default person: ${escapeHtml(currentPerson.display_name)}` : "Amount, item, person, save."}</p>
-        </div>
-        <button class="primary entry-button" data-modal="expense">+ Add expense</button>
+      <section class="period-row">
+        <span>Current period</span>
+        <b>${monthLabel(currentMonth())}</b>
+        <em>INR (₹)</em>
       </section>
-      <section class="metric-grid simple-metrics">
-        ${metric("Spent this month", money(spend), `${monthExpenses().length} entries`)}
-        ${metric("Money left", money(savings), income ? "Income minus expenses" : "Add income to track balance")}
+      <section class="home-balance-card">
+        <div>
+          <span>Total Monthly Income</span>
+          <strong>${money(homeIncome)}</strong>
+          <small>+8.2% vs last month</small>
+        </div>
+      </section>
+      <section class="home-card-stack">
+        <article class="finance-summary-card card expense-summary">
+          <div>
+            <span>Expenses</span>
+            <strong>${money(spend)}</strong>
+            <small>${expenseUsed || 0}% of monthly budget used</small>
+          </div>
+          <b>₹</b>
+          <i style="width:${Math.max(5, expenseUsed)}%"></i>
+        </article>
+        <article class="finance-summary-card card savings-summary">
+          <div>
+            <span>Savings goal</span>
+            <strong>${money(homeSavings)}</strong>
+            <small>House Fund: <b>${money(42000)}</b></small>
+          </div>
+          <b>✓</b>
+        </article>
+      </section>
+      <section class="budget-status-block">
+        <h2>Budget Status</h2>
+        <div class="status-grid">
+          <article class="status-card warn">
+            <span>Dining</span>
+            <strong>${spend > budget && budget ? `Over ${money(spend - budget)}` : "Within limit"}</strong>
+          </article>
+          <article class="status-card ok">
+            <span>Utilities</span>
+            <strong>Within limit</strong>
+          </article>
+        </div>
       </section>
       <section class="dashboard-grid">
         <div class="activity-block recent-panel">
@@ -915,7 +967,7 @@
           </div>
           <div class="card activity-list-card">
             <div class="activity-list">
-              ${recent.length ? recent.map(recentActivityRow).join("") : emptyState("No expenses yet", "Tap Add expense and record the first one.")}
+              ${state.preview ? previewDashboardActivityRows() : recent.length ? recent.map(recentActivityRow).join("") : emptyState("No expenses yet", "Tap Add expense and record the first one.")}
             </div>
           </div>
         </div>
@@ -965,6 +1017,14 @@
         </div>
       </article>
     `;
+  }
+
+  function previewDashboardActivityRows() {
+    return [
+      stitchActivityRow("R", "Spencer's Retail", "Groceries", "Today, 2:14 PM", "-₹4,280", "#e3e7ea", "#0b3d2c"),
+      stitchActivityRow("L", "Urban Company", "Services", "Yesterday", "-₹1,200", "#eaded9", "#0b3d2c"),
+      stitchActivityRow("A", "Monthly Salary", "Income", "Oct 01", "+₹1,25,000", "#dce7e0", "#0b3d2c", true)
+    ].join("");
   }
 
   function activityWhen(expense) {
@@ -1123,6 +1183,7 @@
   }
 
   function insightsScreen() {
+    if (!isDesktopMode()) return mobileInsightsScreen();
     const spend = monthlySpend();
     const income = monthlyIncome();
     const categories = totalsBy(monthExpenses(), (e) => e.category_id || "none", (e) => categoryName(e.category_id), (e) => categoryColor(e.category_id));
@@ -1196,6 +1257,53 @@
     `;
   }
 
+  function mobileInsightsScreen() {
+    const spend = monthlySpend();
+    const income = monthlyIncome();
+    const savings = Math.max(income - spend, 0);
+    const categories = totalsBy(monthExpenses(), (e) => e.category_id || "none", (e) => categoryName(e.category_id), (e) => categoryColor(e.category_id));
+    const members = totalsBy(monthExpenses(), (e) => e.person_id, (e) => personName(e.person_id), (e) => personColor(e.person_id));
+    return `
+      <section class="mobile-insight-metrics">
+        <article class="card insight-mini">
+          <span>Total balance</span>
+          <strong>${money(income + savings)}</strong>
+          <small>↗ +4.2%</small>
+        </article>
+        <article class="card insight-mini">
+          <span>Savings goal</span>
+          <strong>${money(Math.max(savings, 1200000))}</strong>
+          <i><b style="width:70%"></b></i>
+          <small>70% achieved</small>
+        </article>
+      </section>
+      <section class="card panel mobile-chart-card">
+        <div class="chart-head"><h2>Monthly Trend</h2><span>Yearly⌄</span></div>
+        <div class="trend-placeholder"><b>₹1.2L</b></div>
+        <div class="trend-months"><span>MAR</span><span>APR</span><span>MAY</span><span>JUN</span><span>JUL</span><strong>AUG</strong></div>
+      </section>
+      <section class="card panel mobile-breakdown-card">
+        <h2>Category Breakdown</h2>
+        <div class="breakdown-layout">
+          <div class="donut stitch-donut"><span>Total<br>100%</span></div>
+          <div class="legend-list">
+            ${categories.slice(0, 3).map((row, index) => `<div><i style="background:${row.color}"></i><span>${escapeHtml(row.name)}</span><strong>${index === 0 ? "60%" : index === 1 ? "30%" : "10%"}</strong></div>`).join("")}
+          </div>
+        </div>
+      </section>
+      <section class="card panel mobile-member-card">
+        <h2>Spend by Family Member</h2>
+        ${members.slice(0, 3).map((row) => `
+          <article class="member-spend-row">
+            <span class="avatar" style="background:${softColor(row.color)};color:${row.color}">${personInitial(row.name)}</span>
+            <div><strong>${escapeHtml(row.name)}</strong><i><b style="width:${Math.max(8, (row.total / Math.max(members[0]?.total || 1, 1)) * 100)}%"></b></i></div>
+            <em>${money(row.total)}</em>
+          </article>
+        `).join("")}
+      </section>
+    `;
+  }
+
   function donut(rows) {
     if (!rows.length) return emptyState("No chart yet", "Charts appear after expenses are added.");
     const total = rows.reduce((sum, row) => sum + row.total, 0);
@@ -1247,6 +1355,7 @@
   }
 
   function incomeScreen() {
+    if (!isDesktopMode()) return mobileIncomeScreen();
     const rows = state.incomes;
     return `
       <section class="card panel">
@@ -1263,10 +1372,48 @@
     `;
   }
 
+  function mobileIncomeScreen() {
+    const rows = state.incomes;
+    return `
+      <section class="mobile-income-hero">
+        <span>Total Recurring Monthly Income</span>
+        <strong>${money(monthlyIncome())}</strong>
+        <div class="income-hero-stats">
+          <div><span>Active streams</span><b>${String(rows.filter((income) => income.is_active).length).padStart(2, "0")}</b></div>
+          <div><span>Next deposit</span><b>Oct 01</b></div>
+        </div>
+      </section>
+      <section class="income-kpi-grid">
+        <article class="card"><b>↗</b><strong>+8%</strong><span>v/s Last Month</span></article>
+        <article class="card"><b>◎</b><strong>100%</strong><span>Verified</span></article>
+        <article class="card"><b>□</b><strong>Monthly</strong><span>Cycle</span></article>
+      </section>
+      <section class="mobile-list-title"><h2>Recurring Income</h2><button>≡ Filter</button></section>
+      <section class="income-card-list">
+        ${rows.map(mobileIncomeRow).join("")}
+      </section>
+    `;
+  }
+
+  function mobileIncomeRow(income) {
+    const category = income.budget_categories?.name || categoryName(income.category_id);
+    return `
+      <article class="card mobile-income-card">
+        <span class="avatar">${String(income.title).slice(0, 1).toUpperCase()}</span>
+        <div class="item-main">
+          <strong>${escapeHtml(income.title)}</strong>
+          <span>${escapeHtml(category)} · Monthly</span>
+        </div>
+        <strong class="mobile-income-amount">${money(income.amount)}</strong>
+        ${incomeActions(income)}
+      </article>
+    `;
+  }
+
   function incomeRow(income) {
     const category = income.budget_categories?.name || categoryName(income.category_id);
     return `
-      <article class="item">
+      <article class="item income-item">
         <span class="avatar">${String(income.title).slice(0, 1).toUpperCase()}</span>
         <div class="item-main">
           <strong>${escapeHtml(income.title)}</strong>
@@ -1274,12 +1421,23 @@
         </div>
         <div class="item-side">
           <strong>${money(income.amount)}</strong>
-          <div class="item-actions">
-            <button data-edit-income="${income.id}">Edit</button>
-            <button data-toggle-income="${income.id}">${income.is_active ? "Pause" : "Resume"}</button>
-          </div>
+          ${incomeActions(income)}
         </div>
       </article>
+    `;
+  }
+
+  function incomeActions(income) {
+    return `
+      <div class="item-actions income-actions">
+        <button class="icon-action" data-edit-income="${income.id}" aria-label="Edit ${escapeHtml(income.title)}" title="Edit">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+        </button>
+        <button class="icon-action" data-delete-income="${income.id}" aria-label="Delete ${escapeHtml(income.title)}" title="Delete">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 14h10l1-14"></path></svg>
+        </button>
+        <button class="switch-action ${income.is_active ? "on" : ""}" data-toggle-income="${income.id}" aria-label="${income.is_active ? "Pause" : "Resume"} ${escapeHtml(income.title)}"></button>
+      </div>
     `;
   }
 
@@ -1318,6 +1476,7 @@
   }
 
   function familyScreen() {
+    if (!isDesktopMode()) return mobileFamilyScreen();
     const isOwner = state.membership?.role === "OWNER";
     const inviteCode = state.family?.invite_code || "Code is being prepared";
     const locked = Boolean(state.family?.invite_locked);
@@ -1379,6 +1538,61 @@
     `;
   }
 
+  function mobileFamilyScreen() {
+    const isOwner = state.membership?.role === "OWNER";
+    const inviteCode = state.family?.invite_code || "Code is being prepared";
+    const locked = Boolean(state.family?.invite_locked);
+    const pending = state.joinRequests.filter((request) => request.status === "PENDING");
+    return `
+      <section class="mobile-family-page">
+        <h2>Family Members</h2>
+        <div class="member-card-list">
+          ${state.people.slice(0, 3).map((person) => `
+            <article class="card member-card">
+              <span class="avatar">${personInitial(person.display_name)}</span>
+              <div><strong>${escapeHtml(person.display_name)}</strong><span>${person.linked_user_id === state.family.owner_id ? "Primary Owner" : person.linked_user_id ? "Contributor" : "Viewer"}</span></div>
+              <b>${person.linked_user_id === state.family.owner_id ? "♢" : "⋮"}</b>
+            </article>
+          `).join("")}
+        </div>
+        <article class="invite-dark-card">
+          <h3>Invite a Family Member</h3>
+          <p>Share this code with family members to grant them access to the household ledger.</p>
+          <div class="invite-copy-row"><strong>${escapeHtml(inviteCode.replace("BUDGET-", "PADMA-"))}</strong><button data-copy-invite="${escapeHtml(inviteCode)}">COPY</button></div>
+          <button class="share-invite-button" data-copy-invite="${escapeHtml(inviteCode)}">Share Invite Link</button>
+        </article>
+        <h2>Owner Controls</h2>
+        <div class="card owner-control-list">
+          <article><span>▣</span><div><strong>Family Currency</strong><small>INR (₹) - Indian Rupee</small></div><b>›</b></article>
+          <article><span>◌</span><div><strong>Privacy Mode</strong><small>Hide balances by default</small></div><button class="switch-action" type="button" aria-label="Privacy mode"></button></article>
+          <article><span>▤</span><div><strong>Shared Data Encryption</strong><small>End-to-end active</small></div><b class="check-dot">✓</b></article>
+        </div>
+        ${isOwner && pending.length ? `
+          <h2>Join requests</h2>
+          <div class="card owner-control-list join-list">
+            ${pending.map((request) => `
+              <article>
+                <span>${personInitial(request.display_name)}</span>
+                <div><strong>${escapeHtml(request.display_name)}</strong><small>${niceDate(String(request.requested_at || todayKey()).slice(0, 10))}</small></div>
+                <div class="inline-actions">
+                  <button data-review-request="${request.id}" data-decision="APPROVED">Accept</button>
+                  <button data-review-request="${request.id}" data-decision="REJECTED">Reject</button>
+                </div>
+              </article>
+            `).join("")}
+          </div>
+        ` : ""}
+        <h2 class="danger-title">Danger Zone</h2>
+        <div class="danger-zone-card">
+          <button data-action="rotate-invite"><strong>Rotate Invite Code</strong><span>Old code stops working</span></button>
+          <button data-action="toggle-family-lock"><strong>${locked ? "Unlock Joining" : "Lock Joining"}</strong><span>${locked ? "Allow approved requests again" : "Stop new join requests"}</span></button>
+          <button data-action="leave-family"><strong>Leave Family</strong><span>Exit this family group</span></button>
+        </div>
+        <p class="version-line">Version 2.4.0 · Secured by Padmanabham Infrastructure</p>
+      </section>
+    `;
+  }
+
   function miniBars(rows) {
     if (!rows.length) return emptyState("No data", "Nothing to show yet.");
     const max = Math.max(...rows.map((row) => row.total), 1);
@@ -1406,6 +1620,7 @@
     return `
       <div class="modal-backdrop">
         <section class="modal card">
+          <span class="sheet-handle" aria-hidden="true"></span>
           <div class="section-head">
             <h2>${title}</h2>
             <button class="icon-button" data-close-modal>×</button>
@@ -1423,23 +1638,36 @@
     const expense = state.expenses.find((item) => item.id === id);
     const dateValue = expense?.spent_on || todayKey();
     const selectedPersonId = defaultExpensePersonId(expense);
-    const categoryShortcuts = topExpenseCategories(3);
     return `
       <form data-form="expense" data-id="${id || ""}">
-        <label class="field amount-field">Amount spent<input class="input amount-input" name="amount" type="number" inputmode="decimal" min="1" step="1" value="${escapeHtml(expense?.amount || "")}" placeholder="250" required></label>
-        ${categoryShortcuts.length ? `<div class="shortcut-group"><span>Often used categories</span><div class="quick-picks" aria-label="Frequently used categories">
-          ${categoryShortcuts.map((category) => `<button type="button" class="${expense?.category_id === category.id ? "selected" : ""}" data-category-shortcut="${escapeHtml(category.id)}" style="--chip-color:${escapeHtml(category.color || COLORS[0])}">${escapeHtml(category.name)}</button>`).join("")}
-        </div></div>` : ""}
         <label class="field title-field">Expense name<input class="input" name="title" value="${escapeHtml(expense?.title || "")}" placeholder="Milk, vegetables, medicine" required></label>
-        <label class="field person-field">Person who spent<select class="input" name="person_id" required>${state.people.map((p) => `<option value="${p.id}" ${selectedPersonId === p.id ? "selected" : ""}>${escapeHtml(p.display_name)}</option>`).join("")}</select></label>
-        <label class="field category-field">Category<select class="input" name="category_id">${activeExpenseCategories().map((c) => `<option value="${c.id}" ${expense?.category_id === c.id ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select></label>
-        <label class="field date-field">Date<input class="input" name="spent_on" type="date" value="${dateValue}" required><small>Today is loaded automatically. Change only if needed.</small></label>
+        <label class="field amount-field">Amount (₹)<input class="input amount-input" name="amount" type="number" inputmode="decimal" min="1" step="1" value="${escapeHtml(expense?.amount || "")}" placeholder="0.00" required></label>
+        <div class="form-two-col">
+          <label class="field date-field">Date<input class="input" name="spent_on" type="date" value="${dateValue}" required></label>
+          <label class="field category-field">Category<select class="input" name="category_id">${activeExpenseCategories().map((c) => `<option value="${c.id}" ${expense?.category_id === c.id ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select></label>
+        </div>
+        <fieldset class="paid-by-options">
+          <legend>Paid by</legend>
+          <div>
+            ${state.people.slice(0, 3).map((p) => `
+              <label class="${selectedPersonId === p.id ? "selected" : ""}">
+                <input type="radio" name="person_id" value="${p.id}" ${selectedPersonId === p.id ? "checked" : ""} required>
+                <span>${escapeHtml(firstName(p.display_name))}</span>
+              </label>
+            `).join("")}
+          </div>
+        </fieldset>
+        <label class="recurring-row">Mark as recurring?<input type="checkbox" name="recurring_preview"><span></span></label>
         <div class="modal-actions">
           ${id ? `<button class="danger" type="button" data-delete-expense="${id}">Delete</button>` : ""}
           <button class="primary" type="submit">Save expense</button>
         </div>
       </form>
     `;
+  }
+
+  function firstName(value) {
+    return String(value || "").trim().split(/\s+/)[0] || "Person";
   }
 
   function incomeForm(id) {
@@ -1554,6 +1782,7 @@
     document.querySelectorAll("[data-edit-expense]").forEach((button) => button.addEventListener("click", () => openModal("expense", button.dataset.editExpense)));
     document.querySelectorAll("[data-delete-expense]").forEach((button) => button.addEventListener("click", run(() => deleteExpense(button.dataset.deleteExpense))));
     document.querySelectorAll("[data-edit-income]").forEach((button) => button.addEventListener("click", () => openModal("income", button.dataset.editIncome)));
+    document.querySelectorAll("[data-delete-income]").forEach((button) => button.addEventListener("click", run(() => deleteIncome(button.dataset.deleteIncome))));
     document.querySelectorAll("[data-toggle-income]").forEach((button) => button.addEventListener("click", run(() => toggleIncome(button.dataset.toggleIncome))));
     document.querySelectorAll("[data-edit-category]").forEach((button) => button.addEventListener("click", () => openModal("category", button.dataset.editCategory)));
     document.querySelectorAll("[data-delete-category]").forEach((button) => button.addEventListener("click", run(() => deleteCategory(button.dataset.deleteCategory))));
@@ -2109,6 +2338,21 @@
       return;
     }
     const { error } = await client.from("budget_incomes").update({ is_active: !income.is_active }).eq("id", id);
+    if (error) throw error;
+    await load();
+  }
+
+  async function deleteIncome(id) {
+    const income = state.incomes.find((item) => item.id === id);
+    if (!income) return;
+    if (!confirm(`Delete ${income.title}?`)) return;
+    if (state.demo) {
+      state.incomes = state.incomes.filter((item) => item.id !== id);
+      writeDemo();
+      render();
+      return;
+    }
+    const { error } = await client.from("budget_incomes").delete().eq("id", id);
     if (error) throw error;
     await load();
   }

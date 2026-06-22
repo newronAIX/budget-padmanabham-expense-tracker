@@ -40,6 +40,12 @@ SCREENS = {
         "reference": REFERENCE_DIR / "mobile-expenses.png",
         "threshold": 90.0,
     },
+    "mobile-insights": {
+        "path": "/?preview=1&tab=insights",
+        "size": (390, 1200),
+        "reference": REFERENCE_DIR / "mobile-insights.png",
+        "threshold": 90.0,
+    },
     "mobile-add-expense": {
         "path": "/?preview=1&tab=dashboard&modal=expense",
         "size": (390, 844),
@@ -154,9 +160,12 @@ def run_screen(name, screen, base_url, output_dir, default_threshold):
     url = f"{base_url}{screen['path']}"
     target_path = output_dir / f"{name}.png"
     diff_path = output_dir / f"{name}-diff.png"
+    reference_path = Path(screen["reference"])
+    if reference_path.exists() and name != "recent-activity":
+        ref_width, ref_height = Image.open(reference_path).size
+        height = max(height, round(ref_height * (width / ref_width)))
     capture(url, target_path, width, height)
 
-    reference_path = Path(screen["reference"])
     threshold = float(screen.get("threshold", default_threshold))
     report = {
         "screen": name,
