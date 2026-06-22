@@ -659,7 +659,12 @@
             <p>${state.family ? "Family ledger" : "Family expense tracker"}</p>
           </div>
         </div>
-        ${state.user ? `<button class="icon-button" data-action="signout" title="Sign out">↪</button>` : ""}
+        ${state.user ? `
+          <div class="top-actions">
+            ${state.family ? `<button class="topbar-chip ${state.tab === "family" ? "active" : ""}" data-tab="family">Fam</button>` : ""}
+            <button class="icon-button" data-action="signout" title="Sign out">↪</button>
+          </div>
+        ` : ""}
       </header>
     `;
   }
@@ -794,10 +799,9 @@
   function bottomNav() {
     const items = [
       ["dashboard", "Home"],
-      ["expenses", "Expenses"],
-      ["add", "+ Add"],
-      ["income", "Income"],
-      ["family", "Family"]
+      ["expenses", "Spend"],
+      ["add", "Add"],
+      ["income", "Income"]
     ];
     return `
       <nav class="bottom-nav">
@@ -922,13 +926,13 @@
     const total = list.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
     const members = totalsBy(list, (e) => e.person_id, (e) => personName(e.person_id), (e) => personColor(e.person_id));
     const categories = totalsBy(list, (e) => e.category_id || "none", (e) => categoryName(e.category_id), (e) => categoryColor(e.category_id));
-    const isCurrent = month === currentMonth();
+    const hasCustomRange = start !== monthStart(month) || end !== monthEnd(month);
     return `
       <section class="card panel">
         <div class="section-head">
           <div>
             <h2>Expenses</h2>
-            <p class="section-subtitle">${niceDate(start)} to ${niceDate(end)} · ${list.length} entries · ${money(total)}</p>
+            <p class="section-subtitle">${list.length} entries · ${money(total)}</p>
           </div>
         </div>
         <div class="month-switcher">
@@ -941,16 +945,10 @@
           <label class="field">From<input class="input" type="date" data-date-from value="${escapeHtml(start)}"></label>
           <label class="field">To<input class="input" type="date" data-date-to value="${escapeHtml(end)}"></label>
         </div>
-        <div class="month-note">${start === monthStart(month) && end === monthEnd(month) ? (isCurrent ? "Starts fresh on the 1st." : "Previous month is kept separate.") : "Custom range active."}</div>
-        <section class="expense-analysis-grid">
-          <div class="analysis-panel">
-            <strong>Who spent how much</strong>
-            ${members.length ? miniBars(members.slice(0, 4)) : `<p>No member spend in this range.</p>`}
-          </div>
-          <div class="analysis-panel">
-            <strong>By category</strong>
-            ${categories.length ? miniBars(categories.slice(0, 4)) : `<p>No category spend in this range.</p>`}
-          </div>
+        ${hasCustomRange ? `<div class="month-note">Custom range active.</div>` : ""}
+        <section class="expense-analysis-list">
+          ${analysisSection("Who spent how much", members.slice(0, 4))}
+          ${analysisSection("Category spending", categories.slice(0, 4))}
         </section>
         <div class="toolbar expense-toolbar">
           <select class="input" data-sort>
@@ -965,6 +963,28 @@
         </div>
       </section>
     `;
+  }
+
+  function analysisSection(title, rows) {
+    return `
+      <section class="analysis-section">
+        <h3>${escapeHtml(title)}</h3>
+        ${rows.length ? analysisRows(rows) : `<p>No spending in this range.</p>`}
+      </section>
+    `;
+  }
+
+  function analysisRows(rows) {
+    const max = Math.max(...rows.map((row) => row.total), 1);
+    return rows.map((row) => `
+      <article class="analysis-row">
+        <div>
+          <span>${escapeHtml(row.name)}</span>
+          <strong>${money(row.total)}</strong>
+        </div>
+        <div class="analysis-line"><i style="width:${Math.max(4, (row.total / max) * 100)}%;background:${row.color}"></i></div>
+      </article>
+    `).join("");
   }
 
   function sortedExpenses(start = rangeStart(), end = rangeEnd()) {

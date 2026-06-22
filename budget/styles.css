@@ -78,6 +78,11 @@ button {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.brand > div:last-child {
   min-width: 0;
 }
 
@@ -96,8 +101,11 @@ button {
 
 .brand h1 {
   margin: 0;
+  overflow: hidden;
   font-size: 20px;
   line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .brand p,
@@ -112,6 +120,28 @@ button {
 .brand p {
   margin: 3px 0 0;
   font-size: 13px;
+}
+
+.top-actions {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.topbar-chip {
+  min-height: 36px;
+  border-radius: 8px;
+  padding: 0 9px;
+  background: var(--wash);
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.topbar-chip.active {
+  background: var(--primary);
+  color: white;
 }
 
 .card {
@@ -787,6 +817,83 @@ button {
   grid-column: 1 / -1;
 }
 
+.expense-analysis-list {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.analysis-section {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcf8;
+}
+
+.analysis-section h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.analysis-section p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.analysis-row {
+  display: grid;
+  gap: 5px;
+  padding: 8px 0;
+  border-top: 1px solid #e7ebe3;
+}
+
+.analysis-row:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.analysis-row:last-child {
+  padding-bottom: 0;
+}
+
+.analysis-row > div:first-child {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-start;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.analysis-row span {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.analysis-row strong {
+  flex: 0 0 auto;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.analysis-line {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--wash);
+}
+
+.analysis-line i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+
 .expense-toolbar {
   display: grid;
   grid-template-columns: minmax(0, 260px);
@@ -1365,7 +1472,7 @@ button {
 
   .app {
     width: 100%;
-    max-width: 100%;
+    max-width: 390px;
     margin: 0 auto;
     padding: 16px 14px 132px;
     overflow-x: hidden;
@@ -1557,23 +1664,23 @@ button {
     bottom: 0;
     z-index: 20;
     width: 100%;
-    max-width: 430px;
+    max-width: 390px;
     margin: 0 auto;
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 3px;
-    padding: 9px 10px max(9px, env(safe-area-inset-bottom));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 2px;
+    padding: 8px 8px max(8px, env(safe-area-inset-bottom));
     background: rgba(249, 249, 244, 0.96);
     border-top: 1px solid var(--line);
     backdrop-filter: blur(12px);
   }
 
   .bottom-nav button {
-    min-height: 50px;
+    min-height: 48px;
     border-radius: 8px;
     background: transparent;
     color: var(--muted);
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 900;
   }
 
