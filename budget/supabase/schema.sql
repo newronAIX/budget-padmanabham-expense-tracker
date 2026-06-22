@@ -19,14 +19,18 @@ create table if not exists public.budget_families (
   owner_id uuid not null references auth.users(id) on delete cascade,
   currency_code text not null default 'INR',
   monthly_budget numeric(12,2) not null default 0,
+  savings_goal_amount numeric(12,2) not null default 0,
   invite_code text,
   invite_locked boolean not null default false,
   encryption_salt text,
   encryption_check text,
+  encrypted_payload text,
+  encryption_version int,
   created_at timestamptz not null default now(),
   constraint budget_families_name_len check (char_length(trim(name)) between 1 and 80),
   constraint budget_families_currency_len check (char_length(currency_code) = 3),
   constraint budget_families_monthly_budget_nonnegative check (monthly_budget >= 0),
+  constraint budget_families_savings_goal_nonnegative check (savings_goal_amount >= 0),
   constraint budget_families_invite_code_format check (invite_code is null or invite_code ~ '^BUDGET-[A-Z0-9]{4,12}$')
 );
 
@@ -46,6 +50,8 @@ create table if not exists public.budget_join_requests (
   user_id uuid not null references auth.users(id) on delete cascade,
   display_name text not null,
   status text not null default 'PENDING',
+  encrypted_payload text,
+  encryption_version int,
   requested_at timestamptz not null default now(),
   reviewed_by uuid references auth.users(id) on delete set null,
   reviewed_at timestamptz,
@@ -59,6 +65,8 @@ create table if not exists public.budget_people (
   family_id uuid not null references public.budget_families(id) on delete cascade,
   display_name text not null,
   linked_user_id uuid references auth.users(id) on delete set null,
+  encrypted_payload text,
+  encryption_version int,
   created_by uuid not null references auth.users(id) on delete cascade,
   created_at timestamptz not null default now(),
   constraint budget_people_display_name_len check (char_length(trim(display_name)) between 1 and 80)
@@ -70,10 +78,14 @@ create table if not exists public.budget_categories (
   name text not null,
   scope text not null default 'EXPENSE',
   color text not null default '#1B4332',
+  monthly_limit numeric(12,2) not null default 0,
+  encrypted_payload text,
+  encryption_version int,
   created_by uuid not null references auth.users(id) on delete cascade,
   created_at timestamptz not null default now(),
   constraint budget_categories_name_len check (char_length(trim(name)) between 1 and 80),
   constraint budget_categories_color_hex check (color ~ '^#[0-9A-Fa-f]{6}$'),
+  constraint budget_categories_monthly_limit_nonnegative check (monthly_limit >= 0),
   constraint budget_categories_scope_check check (scope in ('EXPENSE', 'INCOME'))
 );
 
@@ -112,12 +124,27 @@ create table if not exists public.budget_incomes (
   day_of_month int not null default 1,
   category_id uuid references public.budget_categories(id) on delete set null,
   is_active boolean not null default true,
+  encrypted_payload text,
+  encryption_version int,
   created_by uuid not null references auth.users(id) on delete cascade,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint budget_incomes_title_len check (char_length(trim(title)) between 1 and 120),
   constraint budget_incomes_amount_positive check (amount > 0),
   constraint budget_incomes_day_range check (day_of_month between 1 and 28)
+);
+
+create table if not exists public.budget_analytics_snapshots (
+  id uuid primary key default gen_random_uuid(),
+  family_id uuid not null references public.budget_families(id) on delete cascade,
+  month_key text not null,
+  encrypted_payload text not null,
+  encryption_version int not null default 1,
+  computed_at timestamptz not null default now(),
+  computed_by uuid references auth.users(id) on delete set null,
+  unique (family_id, month_key),
+  constraint budget_analytics_snapshots_month_key_format check (month_key ~ '^[0-9]{4}-[0-9]{2}$'),
+  constraint budget_analytics_snapshots_payload_len check (char_length(encrypted_payload) between 1 and 200000)
 );
 
 create table if not exists public.budget_invites (
@@ -146,6 +173,12 @@ begin
   if not exists (select 1 from pg_constraint where conname = 'budget_families_name_len') then
     alter table public.budget_families add constraint budget_families_name_len check (char_length(trim(name)) between 1 and 80);
   end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_families' and column_name = 'savings_goal_amount') then
+    alter table public.budget_families add column savings_goal_amount numeric(12,2) not null default 0;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'budget_families_savings_goal_nonnegative') then
+    alter table public.budget_families add constraint budget_families_savings_goal_nonnegative check (savings_goal_amount >= 0);
+  end if;
   if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_families' and column_name = 'invite_code') then
     alter table public.budget_families add column invite_code text;
   end if;
@@ -158,17 +191,41 @@ begin
   if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_families' and column_name = 'encryption_check') then
     alter table public.budget_families add column encryption_check text;
   end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_families' and column_name = 'encrypted_payload') then
+    alter table public.budget_families add column encrypted_payload text;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_families' and column_name = 'encryption_version') then
+    alter table public.budget_families add column encryption_version int;
+  end if;
   if not exists (select 1 from pg_constraint where conname = 'budget_families_invite_code_format') then
     alter table public.budget_families add constraint budget_families_invite_code_format check (invite_code is null or invite_code ~ '^BUDGET-[A-Z0-9]{4,12}$');
   end if;
   if not exists (select 1 from pg_constraint where conname = 'budget_people_display_name_len') then
     alter table public.budget_people add constraint budget_people_display_name_len check (char_length(trim(display_name)) between 1 and 80);
   end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_people' and column_name = 'encrypted_payload') then
+    alter table public.budget_people add column encrypted_payload text;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_people' and column_name = 'encryption_version') then
+    alter table public.budget_people add column encryption_version int;
+  end if;
   if not exists (select 1 from pg_constraint where conname = 'budget_categories_name_len') then
     alter table public.budget_categories add constraint budget_categories_name_len check (char_length(trim(name)) between 1 and 80);
   end if;
   if not exists (select 1 from pg_constraint where conname = 'budget_categories_color_hex') then
     alter table public.budget_categories add constraint budget_categories_color_hex check (color ~ '^#[0-9A-Fa-f]{6}$');
+  end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_categories' and column_name = 'monthly_limit') then
+    alter table public.budget_categories add column monthly_limit numeric(12,2) not null default 0;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'budget_categories_monthly_limit_nonnegative') then
+    alter table public.budget_categories add constraint budget_categories_monthly_limit_nonnegative check (monthly_limit >= 0);
+  end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_categories' and column_name = 'encrypted_payload') then
+    alter table public.budget_categories add column encrypted_payload text;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_categories' and column_name = 'encryption_version') then
+    alter table public.budget_categories add column encryption_version int;
   end if;
   if not exists (select 1 from pg_constraint where conname = 'budget_expenses_title_len') then
     alter table public.budget_expenses add constraint budget_expenses_title_len check (char_length(trim(title)) between 1 and 120);
@@ -184,6 +241,18 @@ begin
   end if;
   if not exists (select 1 from pg_constraint where conname = 'budget_incomes_title_len') then
     alter table public.budget_incomes add constraint budget_incomes_title_len check (char_length(trim(title)) between 1 and 120);
+  end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_join_requests' and column_name = 'encrypted_payload') then
+    alter table public.budget_join_requests add column encrypted_payload text;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_join_requests' and column_name = 'encryption_version') then
+    alter table public.budget_join_requests add column encryption_version int;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_incomes' and column_name = 'encrypted_payload') then
+    alter table public.budget_incomes add column encrypted_payload text;
+  end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_incomes' and column_name = 'encryption_version') then
+    alter table public.budget_incomes add column encryption_version int;
   end if;
   if not exists (select 1 from pg_constraint where conname = 'budget_invites_code_format') then
     alter table public.budget_invites add constraint budget_invites_code_format check (invite_code ~ '^BUDGET-[A-Z0-9]{4,12}$');
@@ -231,6 +300,7 @@ create index if not exists budget_people_family_idx on public.budget_people (fam
 create index if not exists budget_categories_family_idx on public.budget_categories (family_id, scope);
 create index if not exists budget_expenses_family_spent_on_idx on public.budget_expenses (family_id, spent_on desc);
 create index if not exists budget_incomes_family_idx on public.budget_incomes (family_id);
+create index if not exists budget_analytics_snapshots_family_month_idx on public.budget_analytics_snapshots (family_id, month_key desc);
 
 create or replace function public.budget_set_family_invite_code()
 returns trigger
@@ -679,6 +749,7 @@ grant select, insert, update, delete on public.budget_people to authenticated;
 grant select, insert, update, delete on public.budget_categories to authenticated;
 grant select, insert, update, delete on public.budget_expenses to authenticated;
 grant select, insert, update, delete on public.budget_incomes to authenticated;
+grant select, insert, update, delete on public.budget_analytics_snapshots to authenticated;
 grant select, insert, update on public.budget_invites to authenticated;
 grant usage, select on all sequences in schema public to authenticated;
 
@@ -690,6 +761,7 @@ alter table public.budget_people enable row level security;
 alter table public.budget_categories enable row level security;
 alter table public.budget_expenses enable row level security;
 alter table public.budget_incomes enable row level security;
+alter table public.budget_analytics_snapshots enable row level security;
 alter table public.budget_invites enable row level security;
 
 drop policy if exists "budget_profiles_self_select" on public.budget_profiles;
@@ -843,6 +915,29 @@ drop policy if exists "budget_incomes_delete" on public.budget_incomes;
 create policy "budget_incomes_delete" on public.budget_incomes
 for delete to authenticated using (public.is_budget_family_user(family_id));
 
+drop policy if exists "budget_analytics_snapshots_read" on public.budget_analytics_snapshots;
+create policy "budget_analytics_snapshots_read" on public.budget_analytics_snapshots
+for select to authenticated using (public.is_budget_family_user(family_id));
+
+drop policy if exists "budget_analytics_snapshots_insert" on public.budget_analytics_snapshots;
+create policy "budget_analytics_snapshots_insert" on public.budget_analytics_snapshots
+for insert to authenticated with check (
+  public.is_budget_family_user(family_id)
+  and computed_by = auth.uid()
+);
+
+drop policy if exists "budget_analytics_snapshots_update" on public.budget_analytics_snapshots;
+create policy "budget_analytics_snapshots_update" on public.budget_analytics_snapshots
+for update to authenticated using (public.is_budget_family_user(family_id))
+with check (
+  public.is_budget_family_user(family_id)
+  and computed_by = auth.uid()
+);
+
+drop policy if exists "budget_analytics_snapshots_delete" on public.budget_analytics_snapshots;
+create policy "budget_analytics_snapshots_delete" on public.budget_analytics_snapshots
+for delete to authenticated using (public.is_budget_family_user(family_id));
+
 drop policy if exists "budget_invites_owner_read" on public.budget_invites;
 create policy "budget_invites_owner_read" on public.budget_invites
 for select to authenticated using (
@@ -880,7 +975,8 @@ begin
     'budget_people',
     'budget_categories',
     'budget_expenses',
-    'budget_incomes'
+    'budget_incomes',
+    'budget_analytics_snapshots'
   ] loop
     execute format('alter table public.%I replica identity full', table_name);
 

@@ -37,6 +37,7 @@
     categories: [],
     expenses: [],
     incomes: [],
+    analyticsSnapshots: [],
     invites: [],
     joinRequests: [],
     pendingRequest: null,
@@ -65,6 +66,8 @@
   let refreshTimer = null;
   let refreshInterval = null;
   let refreshAfterModal = false;
+  const analyticsSnapshotMonths = new Set();
+  let privacyMigrationRunning = false;
 
   const todayKey = () => {
     const d = new Date();
@@ -151,6 +154,7 @@
         categories: state.categories,
         expenses: state.expenses,
         incomes: state.incomes,
+        analyticsSnapshots: state.analyticsSnapshots,
         invites: state.invites,
         joinRequests: state.joinRequests
       })
@@ -178,6 +182,7 @@
     state.categories = saved?.categories || [];
     state.expenses = saved?.expenses || [];
     state.incomes = saved?.incomes || [];
+    state.analyticsSnapshots = saved?.analyticsSnapshots || [];
     state.invites = saved?.invites || [];
     state.joinRequests = saved?.joinRequests || [];
   }
@@ -188,6 +193,7 @@
       name: "Padmanabham Family",
       currency_code: "INR",
       monthly_budget: 129723,
+      savings_goal_amount: 120000,
       owner_id: "demo-user",
       invite_code: "BUDGET-2048",
       invite_locked: false,
@@ -206,14 +212,16 @@
         family_id: family.id,
         name,
         scope: "EXPENSE",
-        color: COLORS[index % COLORS.length]
+        color: COLORS[index % COLORS.length],
+        monthly_limit: index === 0 ? 55000 : index === 6 ? 16000 : 0
       })),
       ...INCOME_DEFAULTS.map((name, index) => ({
         id: `c-inc-${index}`,
         family_id: family.id,
         name,
         scope: "INCOME",
-        color: COLORS[(index + 3) % COLORS.length]
+        color: COLORS[(index + 3) % COLORS.length],
+        monthly_limit: 0
       }))
     ];
     const expenses = [
@@ -311,6 +319,7 @@
     state.error = "";
     if (!state.user) {
       state.family = null;
+      state.analyticsSnapshots = [];
       stopRealtime();
       render();
       return;
@@ -333,7 +342,7 @@
     if (!memberships?.length) {
       const { data: pendingRows, error: pendingError } = await client
         .from("budget_join_requests")
-        .select("*, budget_families(name)")
+        .select("*")
         .eq("user_id", state.user.id)
         .in("status", ["PENDING", "REJECTED"])
         .order("requested_at", { ascending: false })
@@ -345,6 +354,7 @@
       state.categories = [];
       state.expenses = [];
       state.incomes = [];
+      state.analyticsSnapshots = [];
       state.invites = [];
       state.joinRequests = [];
       state.pendingRequest = pendingRows?.[0] || null;
@@ -361,19 +371,19 @@
     state.membership = memberships[0];
     state.pendingRequest = null;
     const familyId = memberships[0].family_id;
-    const [familyRes, peopleRes, categoriesRes, expensesRes, incomesRes, requestsRes] = await Promise.all([
+    const [familyRes, peopleRes, categoriesRes, expensesRes, incomesRes, requestsRes, snapshotsRes] = await Promise.all([
       client.from("budget_families").select("*").eq("id", familyId).single(),
       client.from("budget_people").select("*").eq("family_id", familyId).order("created_at"),
       client.from("budget_categories").select("*").eq("family_id", familyId).order("scope").order("name"),
       client
         .from("budget_expenses")
-        .select("*, budget_people(display_name), budget_categories(name,color)")
+        .select("*")
         .eq("family_id", familyId)
         .order("spent_on", { ascending: false })
         .order("created_at", { ascending: false }),
       client
         .from("budget_incomes")
-        .select("*, budget_categories(name,color)")
+        .select("*")
         .eq("family_id", familyId)
         .order("created_at", { ascending: false }),
       client
@@ -381,7 +391,12 @@
         .select("*")
         .eq("family_id", familyId)
         .eq("status", "PENDING")
-        .order("requested_at", { ascending: true })
+        .order("requested_at", { ascending: true }),
+      client
+        .from("budget_analytics_snapshots")
+        .select("*")
+        .eq("family_id", familyId)
+        .order("month_key", { ascending: false })
     ]);
 
     if (familyRes.error) throw familyRes.error;
@@ -390,17 +405,25 @@
     if (expensesRes.error) throw expensesRes.error;
     if (incomesRes.error) throw incomesRes.error;
     if (requestsRes.error) throw requestsRes.error;
+    if (snapshotsRes.error) throw snapshotsRes.error;
 
     state.family = familyRes.data;
-    state.people = peopleRes.data || [];
-    state.categories = categoriesRes.data || [];
     await loadFamilyKey();
+    state.family = await hydrateFamily(familyRes.data);
+    state.people = await hydratePeople(peopleRes.data || []);
+    state.categories = await hydrateCategories(categoriesRes.data || []);
     state.expenses = await hydrateExpenses(expensesRes.data || []);
-    state.incomes = incomesRes.data || [];
+    state.incomes = await hydrateIncomes(incomesRes.data || []);
+    state.analyticsSnapshots = await hydrateAnalyticsSnapshots(snapshotsRes.data || []);
     state.invites = [];
-    state.joinRequests = requestsRes.data || [];
+    state.joinRequests = await hydrateJoinRequests(requestsRes.data || []);
     ensureRealtime(familyId);
+    if (state.familyKey && !state.analyticsSnapshots.some((snapshot) => snapshot.month_key === currentMonth())) {
+      queueAnalyticsSnapshot(currentMonth());
+    }
     render();
+    flushAnalyticsSnapshotQueue();
+    migratePlaintextPrivacyRows();
   }
 
   function setupAutoRefresh() {
@@ -448,6 +471,7 @@
       .on("postgres_changes", { event: "*", schema: "public", table: "budget_categories", filter: `family_id=eq.${familyId}` }, reload)
       .on("postgres_changes", { event: "*", schema: "public", table: "budget_expenses", filter: `family_id=eq.${familyId}` }, reload)
       .on("postgres_changes", { event: "*", schema: "public", table: "budget_incomes", filter: `family_id=eq.${familyId}` }, reload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "budget_analytics_snapshots", filter: `family_id=eq.${familyId}` }, reload)
       .subscribe();
   }
 
@@ -540,7 +564,7 @@
   }
 
   function monthlyIncome() {
-    return state.incomes.filter((income) => income.is_active !== false).reduce((sum, income) => sum + Number(income.amount || 0), 0);
+    return incomeForMonth(currentMonth());
   }
 
   function monthlySpend() {
@@ -623,6 +647,154 @@
       map.set(key, previous);
     });
     return [...map.values()].sort((a, b) => b.total - a.total);
+  }
+
+  function incomeForMonth(_key = currentMonth()) {
+    return state.incomes.filter((income) => income.is_active !== false && !income.locked).reduce((sum, income) => sum + Number(income.amount || 0), 0);
+  }
+
+  function snapshotPayloadForMonth(key) {
+    return state.analyticsSnapshots.find((snapshot) => snapshot.month_key === key && snapshot.payload)?.payload || null;
+  }
+
+  function percentChange(current, previous) {
+    if (!Number.isFinite(previous) || previous <= 0) return null;
+    return ((Number(current || 0) - previous) / previous) * 100;
+  }
+
+  function trendLabel(value, noun = "last month") {
+    if (value === null || value === undefined || !Number.isFinite(value)) return "Not enough data yet";
+    const sign = value > 0 ? "+" : "";
+    return `${sign}${value.toFixed(Math.abs(value) >= 10 ? 0 : 1)}% vs ${noun}`;
+  }
+
+  function analyticsForMonth(key = selectedMonth()) {
+    const month = key || currentMonth();
+    const expenses = expensesForMonth(month).filter((expense) => !expense.locked);
+    const spend = expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+    const income = incomeForMonth(month);
+    const previousKey = shiftMonth(month, -1);
+    const previousSnapshot = snapshotPayloadForMonth(previousKey);
+    const previousSpendRows = expensesForMonth(previousKey).filter((expense) => !expense.locked);
+    const previousSpend = previousSpendRows.length
+      ? previousSpendRows.reduce((sum, expense) => sum + Number(expense.amount || 0), 0)
+      : previousSnapshot?.totals?.spend ?? null;
+    const previousIncome = previousSnapshot?.totals?.income ?? null;
+    const categories = totalsBy(expenses, (e) => e.category_id || "none", (e) => categoryName(e.category_id), (e) => categoryColor(e.category_id)).map((row) => {
+      const category = state.categories.find((item) => item.id === row.key);
+      const limit = Number(category?.monthly_limit || 0);
+      return {
+        ...row,
+        monthly_limit: limit,
+        percent: spend ? (row.total / spend) * 100 : 0,
+        limit_used_percent: limit ? (row.total / limit) * 100 : null,
+        budget_status: limit ? (row.total > limit ? "OVER" : "WITHIN") : "NO_LIMIT"
+      };
+    });
+    const members = totalsBy(expenses, (e) => e.person_id, (e) => personName(e.person_id), (e) => personColor(e.person_id));
+    const monthlyBudget = Number(state.family?.monthly_budget || 0);
+    const savingsGoal = Number(state.family?.savings_goal_amount || 0);
+    const savings = income - spend;
+    const trendMonths = Array.from({ length: 6 }, (_, index) => shiftMonth(month, index - 5)).map((trendMonth) => ({
+      month: trendMonth,
+      name: monthLabel(trendMonth).slice(0, 3).toUpperCase(),
+      spend: spendForMonth(trendMonth),
+      income: incomeForMonth(trendMonth)
+    }));
+    return {
+      month_key: month,
+      computed_at: new Date().toISOString(),
+      totals: {
+        income,
+        spend,
+        savings,
+        monthly_budget: monthlyBudget,
+        savings_goal_amount: savingsGoal,
+        budget_used_percent: monthlyBudget ? (spend / monthlyBudget) * 100 : null,
+        savings_progress_percent: savingsGoal ? (Math.max(savings, 0) / savingsGoal) * 100 : null
+      },
+      previous: {
+        month_key: previousKey,
+        income: previousIncome,
+        spend: previousSpend,
+        income_change_percent: percentChange(income, previousIncome),
+        spend_change_percent: percentChange(spend, previousSpend)
+      },
+      categories,
+      members,
+      trend_months: trendMonths,
+      labels: {
+        income_change: trendLabel(percentChange(income, previousIncome)),
+        spend_change: trendLabel(percentChange(spend, previousSpend)),
+        budget_status: monthlyBudget ? (spend > monthlyBudget ? `Over by ${money(spend - monthlyBudget)}` : "Within monthly budget") : "Monthly budget not set",
+        savings_progress: savingsGoal ? `${Math.min(100, Math.round((Math.max(savings, 0) / savingsGoal) * 100))}% achieved` : "Set savings goal"
+      }
+    };
+  }
+
+  function categoryBudgetRows(analytics, limit = 2) {
+    const limited = analytics.categories
+      .filter((row) => row.monthly_limit > 0)
+      .sort((a, b) => {
+        const aOver = a.budget_status === "OVER" ? 1 : 0;
+        const bOver = b.budget_status === "OVER" ? 1 : 0;
+        return bOver - aOver || (b.limit_used_percent || 0) - (a.limit_used_percent || 0);
+      });
+    if (limited.length) return limited.slice(0, limit);
+    return analytics.categories.slice(0, limit);
+  }
+
+  function analyticsSnapshotPayload(month) {
+    const analytics = analyticsForMonth(month);
+    return {
+      month_key: analytics.month_key,
+      computed_at: analytics.computed_at,
+      totals: analytics.totals,
+      previous: analytics.previous,
+      categories: analytics.categories.map(({ key, name, total, count, monthly_limit, percent, limit_used_percent, budget_status }) => ({
+        key,
+        name,
+        total,
+        count,
+        monthly_limit,
+        percent,
+        limit_used_percent,
+        budget_status
+      })),
+      members: analytics.members.map(({ key, name, total, count }) => ({ key, name, total, count })),
+      trend_months: analytics.trend_months,
+      labels: analytics.labels
+    };
+  }
+
+  function queueAnalyticsSnapshot(month = selectedMonth()) {
+    if (state.demo || !month) return;
+    analyticsSnapshotMonths.add(month);
+  }
+
+  function flushAnalyticsSnapshotQueue() {
+    if (state.demo || !analyticsSnapshotMonths.size) return;
+    const months = [...analyticsSnapshotMonths];
+    analyticsSnapshotMonths.clear();
+    persistAnalyticsSnapshots(months).catch(showError);
+  }
+
+  async function persistAnalyticsSnapshots(months) {
+    if (!state.family?.id || !state.user?.id || !state.familyKey || state.privacyLocked) return;
+    const uniqueMonths = [...new Set(months.filter((month) => /^\d{4}-\d{2}$/.test(month)))];
+    for (const month of uniqueMonths) {
+      const payload = analyticsSnapshotPayload(month);
+      const encryptedPayload = await encryptJson(state.familyKey, payload);
+      const { error } = await client.from("budget_analytics_snapshots").upsert({
+        family_id: state.family.id,
+        month_key: month,
+        encrypted_payload: encryptedPayload,
+        encryption_version: 1,
+        computed_at: new Date().toISOString(),
+        computed_by: state.user.id
+      }, { onConflict: "family_id,month_key" });
+      if (error) throw error;
+    }
   }
 
   function render() {
@@ -743,7 +915,7 @@
         </label>
         <div class="legal-copy">
           <strong>Simple terms</strong>
-          <p>This app stores your Gmail profile, family membership, categories, income settings, invite status, and encrypted expense records. It does not collect passwords, bank logins, card numbers, or location. Expense details are encrypted in your browser with your family privacy password before they are sent to Supabase. The family privacy password is not stored by us, so if all family members lose it, encrypted expenses cannot be recovered.</p>
+          <p>This app stores your Gmail profile and the minimum membership records needed to let approved family members sign in. Family content such as family name, member display names, category names, category limits, monthly plan, expenses, income, and analytics is encrypted in your browser with the family privacy password before it is sent to Supabase. Supabase can still see sign-in emails, user ids, row ids, timestamps, invite/request status, and encrypted text, but it cannot read the family financial content. We do not collect bank logins, card numbers, location, or the family privacy password. If all approved members lose the privacy password, encrypted records cannot be recovered. <a href="./terms.html" target="_blank" rel="noreferrer">Read full terms and privacy policy.</a></p>
         </div>
         <button class="google-button" data-action="google">
           <span class="g-icon">G</span>
@@ -769,12 +941,11 @@
     const createDraft = readFormDraft("create-family");
     const joinDraft = readFormDraft("join-family");
     if (state.pendingRequest?.status === "PENDING") {
-      const familyName = state.pendingRequest.budget_families?.name || "the family";
       return `
         <section class="auth card">
           <div class="auth-mark">₹</div>
           <h2>Waiting for moderator</h2>
-          <p>Your request to join ${escapeHtml(familyName)} was sent. The family moderator needs to approve you before you can enter expenses.</p>
+          <p>Your request to join this family was sent. The family moderator needs to approve you before you can enter expenses.</p>
           <button class="secondary wide" data-action="signout">Sign out</button>
         </section>
       `;
@@ -795,6 +966,7 @@
             <label class="field">Family name<input class="input" name="family" value="${escapeHtml(createDraft.family || "Padmanabham Family")}" required></label>
             <label class="field">Your display name<input class="input" name="person" value="${escapeHtml(createDraft.person || defaultName)}" required></label>
             <label class="field">Monthly budget<input class="input" name="budget" type="number" value="${escapeHtml(createDraft.budget || "150000")}" min="0"></label>
+            <label class="field">Savings goal<input class="input" name="savings_goal" type="number" value="${escapeHtml(createDraft.savings_goal || "0")}" min="0"><small>Optional monthly savings target.</small></label>
             <label class="field">Family privacy password<input class="input" name="privacy" type="password" minlength="8" autocomplete="new-password" value="${escapeHtml(createDraft.privacy || "")}" required><small>Share this only with approved family members. It is not stored in Supabase.</small></label>
             <button class="primary wide" type="submit">Create family</button>
           </form>
@@ -873,11 +1045,11 @@
     return `
       <section class="auth card">
         <div class="auth-mark">₹</div>
-        <h2>Unlock family expenses</h2>
-        <p>Enter the family privacy password to decrypt expenses on this device.</p>
+        <h2>Unlock family ledger</h2>
+        <p>Enter the family privacy password to decrypt this family's plan, categories, people, expenses, income, and insights on this device.</p>
         <form data-form="privacy-unlock">
           <label class="field">Family privacy password<input class="input" name="privacy" type="password" autocomplete="current-password" value="${escapeHtml(draft.privacy || "")}" required></label>
-          <button class="primary wide" type="submit">Unlock expenses</button>
+          <button class="primary wide" type="submit">Unlock family ledger</button>
         </form>
       </section>
     `;
@@ -890,7 +1062,7 @@
       <section class="auth card">
         <div class="auth-mark">₹</div>
         <h2>Set family privacy</h2>
-        <p>${isOwner ? "Create a family privacy password before entering new expenses. It encrypts expense details in the browser before saving." : "The family moderator needs to create the privacy password before expenses can be entered."}</p>
+        <p>${isOwner ? "Create a family privacy password before entering family data. It encrypts the monthly plan, categories, people, expenses, income, and insights in the browser before saving." : "The family moderator needs to create the privacy password before family data can be entered."}</p>
         ${isOwner ? `
           <form data-form="privacy-setup">
             <label class="field">Family privacy password<input class="input" name="privacy" type="password" minlength="8" autocomplete="new-password" value="${escapeHtml(draft.privacy || "")}" required></label>
@@ -902,17 +1074,24 @@
   }
 
   function dashboardScreen() {
-    const spend = monthlySpend();
-    const income = monthlyIncome();
-    const savings = income - spend;
+    const analytics = analyticsForMonth(currentMonth());
+    const spend = analytics.totals.spend;
+    const income = analytics.totals.income;
+    const savings = analytics.totals.savings;
     const homeIncome = state.preview ? 142500 : income;
     const homeSavings = state.preview ? 58180 : Math.max(savings, 0);
-    const budget = Number(state.family.monthly_budget || 0);
-    const used = budget ? Math.min(100, Math.round((spend / budget) * 100)) : 0;
-    const expenseUsed = budget ? Math.min(100, Math.round((spend / budget) * 100)) : 0;
+    const budget = analytics.totals.monthly_budget;
+    const used = budget ? Math.min(100, Math.round(analytics.totals.budget_used_percent || 0)) : 0;
+    const expenseUsed = used;
     const recent = monthExpenses().slice(0, 3);
     const memberTotals = totalsBy(monthExpenses(), (e) => e.person_id, (e) => personName(e.person_id), (e) => personColor(e.person_id));
     const archives = previousMonthSummaries(4);
+    const savingsGoal = analytics.totals.savings_goal_amount;
+    const savingsSubtitle = state.preview
+      ? `House Fund: <b>${money(42000)}</b>`
+      : savingsGoal
+      ? `${analytics.labels.savings_progress} of ${money(savingsGoal)}`
+      : "Set a savings goal";
 
     return `
       <section class="period-row">
@@ -924,7 +1103,7 @@
         <div>
           <span>Total Monthly Income</span>
           <strong>${money(homeIncome)}</strong>
-          <small>+8.2% vs last month</small>
+          <small>${state.preview ? "+8.2% vs last month" : analytics.labels.income_change}</small>
         </div>
       </section>
       <section class="home-card-stack">
@@ -941,7 +1120,7 @@
           <div>
             <span>Savings goal</span>
             <strong>${money(homeSavings)}</strong>
-            <small>House Fund: <b>${money(42000)}</b></small>
+            <small>${state.preview ? savingsSubtitle : escapeHtml(savingsSubtitle)}</small>
           </div>
           <b>✓</b>
         </article>
@@ -949,14 +1128,16 @@
       <section class="budget-status-block">
         <h2>Budget Status</h2>
         <div class="status-grid">
-          <article class="status-card warn">
-            <span>Dining</span>
-            <strong>${spend > budget && budget ? `Over ${money(spend - budget)}` : "Within limit"}</strong>
-          </article>
-          <article class="status-card ok">
-            <span>Utilities</span>
-            <strong>Within limit</strong>
-          </article>
+          ${state.preview ? `
+            <article class="status-card warn">
+              <span>Dining</span>
+              <strong>${spend > budget && budget ? `Over ${money(spend - budget)}` : "Within limit"}</strong>
+            </article>
+            <article class="status-card ok">
+              <span>Utilities</span>
+              <strong>Within limit</strong>
+            </article>
+          ` : budgetStatusCards(analytics)}
         </div>
       </section>
       <section class="dashboard-grid">
@@ -997,14 +1178,43 @@
     `;
   }
 
+  function budgetStatusCards(analytics) {
+    const rows = categoryBudgetRows(analytics, 2);
+    if (rows.length) {
+      return rows.map((row) => {
+        const over = row.budget_status === "OVER";
+        const status = row.monthly_limit
+          ? over ? `Over by ${money(row.total - row.monthly_limit)}` : `${Math.min(100, Math.round(row.limit_used_percent || 0))}% used`
+          : money(row.total);
+        return `
+          <article class="status-card ${over ? "warn" : "ok"}">
+            <span>${escapeHtml(row.name)}</span>
+            <strong>${escapeHtml(status)}</strong>
+          </article>
+        `;
+      }).join("");
+    }
+    const overMonthly = analytics.totals.monthly_budget && analytics.totals.spend > analytics.totals.monthly_budget;
+    return `
+      <article class="status-card ${overMonthly ? "warn" : "ok"}">
+        <span>Monthly budget</span>
+        <strong>${escapeHtml(analytics.labels.budget_status)}</strong>
+      </article>
+      <article class="status-card ok">
+        <span>Savings</span>
+        <strong>${money(Math.max(analytics.totals.savings, 0))}</strong>
+      </article>
+    `;
+  }
+
   function metric(label, value, sub) {
     return `<article class="metric card"><span>${label}</span><strong>${value}</strong><small>${sub}</small></article>`;
   }
 
   function recentActivityRow(expense) {
-    const category = expense.budget_categories?.name || categoryName(expense.category_id);
-    const color = expense.budget_categories?.color || categoryColor(expense.category_id);
-    const person = expense.budget_people?.display_name || personName(expense.person_id);
+    const category = categoryName(expense.category_id);
+    const color = categoryColor(expense.category_id);
+    const person = personName(expense.person_id);
     return `
       <article class="activity-row">
         <span class="activity-spender" title="${escapeHtml(person)}" aria-label="${escapeHtml(person)}" style="background:${softColor(color)};color:${color}">${personInitial(person)}</span>
@@ -1132,9 +1342,9 @@
 
   function expenseRow(expense, options = {}) {
     const isCompact = Boolean(options.compact);
-    const category = expense.budget_categories?.name || categoryName(expense.category_id);
-    const color = expense.budget_categories?.color || categoryColor(expense.category_id);
-    const person = expense.budget_people?.display_name || personName(expense.person_id);
+    const category = categoryName(expense.category_id);
+    const color = categoryColor(expense.category_id);
+    const person = personName(expense.person_id);
     if (isCompact) {
       return `
         <article class="item compact-expense-item">
@@ -1258,6 +1468,58 @@
   }
 
   function mobileInsightsScreen() {
+    if (state.preview) return previewMobileInsightsScreen();
+    const analytics = analyticsForMonth(currentMonth());
+    const savings = Math.max(analytics.totals.savings, 0);
+    const categories = analytics.categories;
+    const members = analytics.members;
+    const savingsGoal = analytics.totals.savings_goal_amount;
+    const savingsProgress = Math.min(100, Math.max(0, Math.round(analytics.totals.savings_progress_percent || 0)));
+    const trendMax = Math.max(...analytics.trend_months.map((row) => row.spend), 0);
+    return `
+      <section class="mobile-insight-metrics">
+        <article class="card insight-mini">
+          <span>Total balance</span>
+          <strong>${money(savings)}</strong>
+          <small>${escapeHtml(analytics.labels.spend_change)}</small>
+        </article>
+        <article class="card insight-mini">
+          <span>Savings goal</span>
+          <strong>${savingsGoal ? money(savingsGoal) : "Not set"}</strong>
+          <i><b style="width:${savingsGoal ? savingsProgress : 0}%"></b></i>
+          <small>${escapeHtml(analytics.labels.savings_progress)}</small>
+        </article>
+      </section>
+      <section class="card panel mobile-chart-card">
+        <div class="chart-head"><h2>Monthly Trend</h2><span>6 months</span></div>
+        <div class="trend-placeholder"><b>${trendMax ? money(trendMax) : "No history"}</b></div>
+        <div class="trend-months">
+          ${analytics.trend_months.map((row, index) => index === analytics.trend_months.length - 1 ? `<strong>${escapeHtml(row.name)}</strong>` : `<span>${escapeHtml(row.name)}</span>`).join("")}
+        </div>
+      </section>
+      <section class="card panel mobile-breakdown-card">
+        <h2>Category Breakdown</h2>
+        <div class="breakdown-layout">
+          <div class="donut stitch-donut"><span>Total<br>${money(analytics.totals.spend)}</span></div>
+          <div class="legend-list">
+            ${categories.slice(0, 3).map((row) => `<div><i style="background:${row.color}"></i><span>${escapeHtml(row.name)}</span><strong>${Math.round(row.percent || 0)}%</strong></div>`).join("") || `<div><span>No category spend</span><strong>0%</strong></div>`}
+          </div>
+        </div>
+      </section>
+      <section class="card panel mobile-member-card">
+        <h2>Spend by Family Member</h2>
+        ${members.slice(0, 3).map((row) => `
+          <article class="member-spend-row">
+            <span class="avatar" style="background:${softColor(row.color)};color:${row.color}">${personInitial(row.name)}</span>
+            <div><strong>${escapeHtml(row.name)}</strong><i><b style="width:${Math.max(8, (row.total / Math.max(members[0]?.total || 1, 1)) * 100)}%"></b></i></div>
+            <em>${money(row.total)}</em>
+          </article>
+        `).join("")}
+      </section>
+    `;
+  }
+
+  function previewMobileInsightsScreen() {
     const spend = monthlySpend();
     const income = monthlyIncome();
     const savings = Math.max(income - spend, 0);
@@ -1373,6 +1635,33 @@
   }
 
   function mobileIncomeScreen() {
+    if (state.preview) return previewMobileIncomeScreen();
+    const rows = state.incomes;
+    const analytics = analyticsForMonth(currentMonth());
+    const activeRows = rows.filter((income) => income.is_active !== false && !income.locked);
+    const activePercent = rows.length ? Math.round((activeRows.length / rows.length) * 100) : 0;
+    return `
+      <section class="mobile-income-hero">
+        <span>Total Recurring Monthly Income</span>
+        <strong>${money(monthlyIncome())}</strong>
+        <div class="income-hero-stats">
+          <div><span>Active streams</span><b>${String(activeRows.length).padStart(2, "0")}</b></div>
+          <div><span>Next deposit</span><b>${escapeHtml(nextDepositLabel(activeRows))}</b></div>
+        </div>
+      </section>
+      <section class="income-kpi-grid">
+        <article class="card"><b>↗</b><strong>${escapeHtml(shortTrendValue(analytics.previous.income_change_percent))}</strong><span>v/s Last Month</span></article>
+        <article class="card"><b>◎</b><strong>${activePercent}%</strong><span>Active</span></article>
+        <article class="card"><b>□</b><strong>Monthly</strong><span>Cycle</span></article>
+      </section>
+      <section class="mobile-list-title"><h2>Recurring Income</h2><button>≡ Filter</button></section>
+      <section class="income-card-list">
+        ${rows.map(mobileIncomeRow).join("")}
+      </section>
+    `;
+  }
+
+  function previewMobileIncomeScreen() {
     const rows = state.incomes;
     return `
       <section class="mobile-income-hero">
@@ -1395,8 +1684,31 @@
     `;
   }
 
+  function shortTrendValue(value) {
+    if (value === null || value === undefined || !Number.isFinite(value)) return "No data";
+    const sign = value > 0 ? "+" : "";
+    return `${sign}${value.toFixed(Math.abs(value) >= 10 ? 0 : 1)}%`;
+  }
+
+  function nextDepositLabel(rows) {
+    if (!rows.length) return "None";
+    const today = new Date();
+    const currentDay = today.getDate();
+    const next = rows
+      .map((income) => Number(income.day_of_month || 1))
+      .sort((a, b) => {
+        const aDelta = a >= currentDay ? a - currentDay : a + 31 - currentDay;
+        const bDelta = b >= currentDay ? b - currentDay : b + 31 - currentDay;
+        return aDelta - bDelta;
+      })[0];
+    const date = new Date(today);
+    if (next < currentDay) date.setMonth(date.getMonth() + 1);
+    date.setDate(Math.min(next, 28));
+    return new Intl.DateTimeFormat("en-IN", { month: "short", day: "2-digit" }).format(date);
+  }
+
   function mobileIncomeRow(income) {
-    const category = income.budget_categories?.name || categoryName(income.category_id);
+    const category = categoryName(income.category_id);
     return `
       <article class="card mobile-income-card">
         <span class="avatar">${String(income.title).slice(0, 1).toUpperCase()}</span>
@@ -1411,7 +1723,7 @@
   }
 
   function incomeRow(income) {
-    const category = income.budget_categories?.name || categoryName(income.category_id);
+    const category = categoryName(income.category_id);
     return `
       <article class="item income-item">
         <span class="avatar">${String(income.title).slice(0, 1).toUpperCase()}</span>
@@ -1460,12 +1772,13 @@
 
   function categoryRow(category) {
     const used = state.expenses.filter((expense) => expense.category_id === category.id).length + state.incomes.filter((income) => income.category_id === category.id).length;
+    const limitText = category.scope === "EXPENSE" && Number(category.monthly_limit || 0) > 0 ? ` · Limit ${money(category.monthly_limit)}` : "";
     return `
       <article class="item">
         <span class="swatch" style="background:${category.color}"></span>
         <div class="item-main">
           <strong>${escapeHtml(category.name)}</strong>
-          <span>${category.scope === "EXPENSE" ? "Expense" : "Income"} · ${used} items</span>
+          <span>${category.scope === "EXPENSE" ? "Expense" : "Income"} · ${used} items${escapeHtml(limitText)}</span>
         </div>
         <div class="item-actions">
           <button data-edit-category="${category.id}">Rename</button>
@@ -1516,6 +1829,8 @@
             ` : ""}
           </div>
           <p class="muted invite-help">${isOwner ? "Rotate if the old code was shared too widely. Old code stops working." : "You can share the code. Only the moderator can rotate, lock, or unlock joining."}</p>
+          ${!state.preview ? budgetGoalsPanel() : ""}
+          ${!state.preview ? categoryLimitsPanel() : ""}
           ${isOwner ? `
             <hr>
             <h2>Join requests</h2>
@@ -1545,6 +1860,8 @@
     const pending = state.joinRequests.filter((request) => request.status === "PENDING");
     return `
       <section class="mobile-family-page">
+        ${!state.preview ? budgetGoalsPanel("mobile") : ""}
+        ${!state.preview ? categoryLimitsPanel("mobile") : ""}
         <h2>Family Members</h2>
         <div class="member-card-list">
           ${state.people.slice(0, 3).map((person) => `
@@ -1593,6 +1910,94 @@
     `;
   }
 
+  function budgetGoalsPanel(mode = "desktop") {
+    const isOwner = state.membership?.role === "OWNER";
+    const analytics = analyticsForMonth(currentMonth());
+    const monthlyBudget = Number(state.family?.monthly_budget || 0);
+    const savingsGoal = Number(state.family?.savings_goal_amount || 0);
+    const budgetPercent = Math.min(100, Math.max(0, Math.round(analytics.totals.budget_used_percent || 0)));
+    const savingsPercent = Math.min(100, Math.max(0, Math.round(analytics.totals.savings_progress_percent || 0)));
+    const overCount = categoryLimitRows(true).filter((row) => row.status === "OVER").length;
+    return `
+      <section class="card budget-goals-card ${mode === "mobile" ? "mobile-budget-goals-card" : ""}">
+        <div class="budget-card-head">
+          <div>
+            <span>Monthly plan</span>
+            <h2>Budget & Goals</h2>
+          </div>
+          ${isOwner ? `<button class="secondary compact" data-modal="family-plan">Edit</button>` : ""}
+        </div>
+        <div class="plan-value-grid">
+          <article>
+            <span>Budget</span>
+            <strong>${money(monthlyBudget)}</strong>
+          </article>
+          <article>
+            <span>Goal</span>
+            <strong>${savingsGoal ? money(savingsGoal) : "Not set"}</strong>
+          </article>
+        </div>
+        <div class="budget-status-list">
+          ${statusMeter("Total budget used", monthlyBudget ? `${budgetPercent}%` : "Not set", budgetPercent, budgetPercent > 100 ? "warn" : "")}
+          ${statusMeter("Savings progress", savingsGoal ? `${savingsPercent}%` : "Not set", savingsGoal ? savingsPercent : 0, "gold")}
+          ${statusMeter("Categories over limit", `${overCount}`, overCount ? 100 : 0, overCount ? "warn" : "")}
+        </div>
+      </section>
+    `;
+  }
+
+  function categoryLimitsPanel(mode = "desktop") {
+    const isOwner = state.membership?.role === "OWNER";
+    const rows = categoryLimitRows(true);
+    const limitCount = rows.filter((row) => row.limit > 0).length;
+    const overCount = rows.filter((row) => row.status === "OVER").length;
+    const spentAgainstLimited = rows.filter((row) => row.limit > 0).reduce((sum, row) => sum + row.spent, 0);
+    return `
+      <section class="card category-limit-panel ${mode === "mobile" ? "mobile-category-limit-panel" : ""}">
+        <div class="limit-summary-row">
+          <div>
+            <span>Category limits</span>
+            <strong>${limitCount ? `${limitCount} set` : "None set"}</strong>
+            <small>${overCount ? `${overCount} over limit` : `${money(spentAgainstLimited)} tracked`}</small>
+          </div>
+          ${rows.length ? `<button class="${isOwner ? "primary" : "secondary"} compact" data-modal="category-limits">${isOwner ? "Edit limits" : "View limits"}</button>` : ""}
+        </div>
+      </section>
+    `;
+  }
+
+  function statusMeter(label, value, percent, tone = "") {
+    const width = Number(percent || 0) <= 0 ? 0 : Math.min(100, Math.max(4, Number(percent || 0)));
+    return `
+      <article class="budget-meter ${tone}">
+        <div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>
+        <i><b style="width:${width}%"></b></i>
+      </article>
+    `;
+  }
+
+  function categoryLimitRows(all = false) {
+    const spendRows = new Map(totalsBy(monthExpenses(), (e) => e.category_id || "none", (e) => categoryName(e.category_id), (e) => categoryColor(e.category_id)).map((row) => [row.key, row]));
+    const rows = activeExpenseCategories().map((category) => {
+      const spent = Number(spendRows.get(category.id)?.total || 0);
+      const limit = Number(category.monthly_limit || 0);
+      const used = limit ? (spent / limit) * 100 : 0;
+      return {
+        id: category.id,
+        name: category.name,
+        color: category.color,
+        limit,
+        spent,
+        used,
+        status: limit && spent > limit ? "OVER" : "OK"
+      };
+    }).sort((a, b) => {
+      const overDiff = (b.status === "OVER" ? 1 : 0) - (a.status === "OVER" ? 1 : 0);
+      return overDiff || b.used - a.used || b.spent - a.spent || a.name.localeCompare(b.name);
+    });
+    return all ? rows : rows.slice(0, 3);
+  }
+
   function miniBars(rows) {
     if (!rows.length) return emptyState("No data", "Nothing to show yet.");
     const max = Math.max(...rows.map((row) => row.total), 1);
@@ -1615,7 +2020,9 @@
       expense: id ? "Edit expense" : "Add expense",
       income: id ? "Edit income" : "Add income",
       category: id ? "Rename category" : "Add category",
-      person: id ? "Edit person" : "Add person"
+      person: id ? "Edit person" : "Add person",
+      "family-plan": "Edit monthly plan",
+      "category-limits": "Category limits"
     }[type];
     return `
       <div class="modal-backdrop">
@@ -1629,6 +2036,8 @@
           ${type === "income" ? incomeForm(id) : ""}
           ${type === "category" ? categoryForm(id) : ""}
           ${type === "person" ? personForm(id) : ""}
+          ${type === "family-plan" ? familyPlanForm() : ""}
+          ${type === "category-limits" ? categoryLimitsForm() : ""}
         </section>
       </div>
     `;
@@ -1693,6 +2102,7 @@
           <option value="EXPENSE" ${(category?.scope || state.scope) === "EXPENSE" ? "selected" : ""}>Expense</option>
           <option value="INCOME" ${(category?.scope || state.scope) === "INCOME" ? "selected" : ""}>Income</option>
         </select></label>
+        <label class="field">Monthly limit<input class="input" name="monthly_limit" type="number" min="0" step="1" value="${escapeHtml(category?.monthly_limit || "")}" placeholder="0"><small>Optional for expense categories.</small></label>
         <label class="field">Color<input class="input" name="color" type="color" value="${escapeHtml(category?.color || COLORS[0])}"></label>
         <button class="primary wide" type="submit">Save category</button>
       </form>
@@ -1709,6 +2119,48 @@
     `;
   }
 
+  function familyPlanForm() {
+    return `
+      <form class="family-plan-sheet" data-form="family-planning">
+        <label class="field">Monthly Budget (₹)<input class="input" name="monthly_budget" type="number" min="0" step="1" value="${escapeHtml(state.family?.monthly_budget || 0)}"><small>Set your family's spending limit for this month.</small></label>
+        <label class="field">Savings Goal (₹)<input class="input" name="savings_goal_amount" type="number" min="0" step="1" value="${escapeHtml(state.family?.savings_goal_amount || 0)}"><small>Target amount for long-term family growth.</small></label>
+        <div class="privacy-confirm-line"><span>▤</span><strong>End-to-end encrypted changes</strong></div>
+        <div class="modal-actions">
+          <button class="secondary" type="button" data-close-modal>Cancel</button>
+          <button class="primary" type="submit">Save Plan</button>
+        </div>
+      </form>
+    `;
+  }
+
+  function categoryLimitsForm() {
+    const isOwner = state.membership?.role === "OWNER";
+    const rows = categoryLimitRows(true);
+    return `
+      <form class="category-limits-sheet" data-form="category-limits">
+        <div class="category-limit-scroll">
+          ${rows.length ? rows.map((row) => `
+            <article class="limit-edit-row">
+              <span class="swatch" style="background:${row.color}"></span>
+              <div>
+                <strong>${escapeHtml(row.name)}</strong>
+                <small>${row.spent ? `${money(row.spent)} spent this month` : "No spend this month"}</small>
+              </div>
+              <label>
+                <span>Limit</span>
+                <input class="input" data-limit-category="${row.id}" name="limit_${row.id}" type="number" min="0" step="1" value="${escapeHtml(row.limit || "")}" placeholder="0" ${isOwner ? "" : "disabled"}>
+              </label>
+            </article>
+          `).join("") : `<p class="muted">No expense categories yet.</p>`}
+        </div>
+        <div class="sticky-sheet-actions">
+          <button class="secondary" type="button" data-close-modal>Cancel</button>
+          ${isOwner ? `<button class="primary" type="submit">Save All Limits</button>` : `<button class="primary" type="button" data-close-modal>Done</button>`}
+        </div>
+      </form>
+    `;
+  }
+
   function bind() {
     document.querySelectorAll("[data-action='google']").forEach((button) => button.addEventListener("click", run(signInWithGoogle)));
     document.querySelectorAll("[data-action='signout']").forEach((button) => button.addEventListener("click", run(signOut)));
@@ -1720,10 +2172,10 @@
       state.modal = { type: button.dataset.modal };
       render();
     }));
-    document.querySelector("[data-close-modal]")?.addEventListener("click", () => {
+    document.querySelectorAll("[data-close-modal]").forEach((button) => button.addEventListener("click", () => {
       state.modal = null;
       render();
-    });
+    }));
     document.querySelector("[data-sort]")?.addEventListener("change", (event) => {
       state.sort = event.target.value;
       render();
@@ -1775,6 +2227,8 @@
     bindForm("income", saveIncome);
     bindForm("category", saveCategory);
     bindForm("person", savePerson);
+    bindForm("family-planning", saveFamilyPlanning);
+    bindForm("category-limits", saveCategoryLimits);
     bindForm("privacy-unlock", unlockPrivacy);
     bindForm("privacy-setup", setupPrivacy);
     bindFormDrafts();
@@ -1892,6 +2346,13 @@
     return Math.round(amount * 100) / 100;
   }
 
+  function nonnegativeMoney(value, label) {
+    const amount = Number(value || 0);
+    if (!Number.isFinite(amount) || amount < 0) throw new Error(`Please enter a valid ${label}.`);
+    if (amount > 999999999) throw new Error(`${label} is too large.`);
+    return Math.round(amount * 100) / 100;
+  }
+
   function boundedNumber(value, label, min, max) {
     const number = Number(value);
     if (!Number.isFinite(number) || number < min || number > max) {
@@ -2004,11 +2465,92 @@
     }
   }
 
+  async function hydrateFamily(row) {
+    if (!row?.encrypted_payload) return row ? { ...row, needsEncryptionMigration: Boolean(state.familyKey) } : row;
+    if (!state.familyKey) {
+      state.privacyLocked = true;
+      return { ...row, name: "Locked family", monthly_budget: 0, savings_goal_amount: 0, locked: true };
+    }
+    try {
+      const decrypted = await decryptJson(state.familyKey, row.encrypted_payload);
+      return { ...row, ...decrypted, encrypted: true };
+    } catch (_) {
+      state.privacyLocked = true;
+      return { ...row, name: "Locked family", monthly_budget: 0, savings_goal_amount: 0, locked: true };
+    }
+  }
+
+  async function hydratePeople(rows) {
+    const hydrated = [];
+    for (const row of rows) {
+      if (!row.encrypted_payload) {
+        hydrated.push({ ...row, needsEncryptionMigration: Boolean(state.familyKey) });
+        continue;
+      }
+      if (!state.familyKey) {
+        hydrated.push({ ...row, display_name: "Locked member", locked: true });
+        state.privacyLocked = true;
+        continue;
+      }
+      try {
+        hydrated.push({ ...row, ...(await decryptJson(state.familyKey, row.encrypted_payload)), encrypted: true });
+      } catch (_) {
+        hydrated.push({ ...row, display_name: "Locked member", locked: true });
+        state.privacyLocked = true;
+      }
+    }
+    return hydrated;
+  }
+
+  async function hydrateCategories(rows) {
+    const hydrated = [];
+    for (const row of rows) {
+      if (!row.encrypted_payload) {
+        hydrated.push({ ...row, needsEncryptionMigration: Boolean(state.familyKey) });
+        continue;
+      }
+      if (!state.familyKey) {
+        hydrated.push({ ...row, name: "Locked category", color: COLORS[0], monthly_limit: 0, locked: true });
+        state.privacyLocked = true;
+        continue;
+      }
+      try {
+        hydrated.push({ ...row, ...(await decryptJson(state.familyKey, row.encrypted_payload)), encrypted: true });
+      } catch (_) {
+        hydrated.push({ ...row, name: "Locked category", color: COLORS[0], monthly_limit: 0, locked: true });
+        state.privacyLocked = true;
+      }
+    }
+    return hydrated;
+  }
+
+  async function hydrateJoinRequests(rows) {
+    const hydrated = [];
+    for (const row of rows) {
+      if (!row.encrypted_payload) {
+        hydrated.push({ ...row, needsEncryptionMigration: Boolean(state.familyKey) });
+        continue;
+      }
+      if (!state.familyKey) {
+        hydrated.push({ ...row, display_name: "Locked request", locked: true });
+        state.privacyLocked = true;
+        continue;
+      }
+      try {
+        hydrated.push({ ...row, ...(await decryptJson(state.familyKey, row.encrypted_payload)), encrypted: true });
+      } catch (_) {
+        hydrated.push({ ...row, display_name: "Locked request", locked: true });
+        state.privacyLocked = true;
+      }
+    }
+    return hydrated;
+  }
+
   async function hydrateExpenses(rows) {
     const hydrated = [];
     for (const row of rows) {
       if (!row.encrypted_payload) {
-        hydrated.push(row);
+        hydrated.push({ ...row, needsEncryptionMigration: Boolean(state.familyKey) });
         continue;
       }
       if (!state.familyKey) {
@@ -2027,10 +2569,99 @@
     return hydrated;
   }
 
+  async function hydrateIncomes(rows) {
+    const hydrated = [];
+    for (const row of rows) {
+      if (!row.encrypted_payload) {
+        hydrated.push({ ...row, needsEncryptionMigration: Boolean(state.familyKey) });
+        continue;
+      }
+      if (!state.familyKey) {
+        hydrated.push({ ...row, title: "Locked income", amount: 0, category_id: null, day_of_month: 1, locked: true });
+        state.privacyLocked = true;
+        continue;
+      }
+      try {
+        const decrypted = await decryptJson(state.familyKey, row.encrypted_payload);
+        hydrated.push({ ...row, ...decrypted, encrypted: true });
+      } catch (_) {
+        hydrated.push({ ...row, title: "Locked income", amount: 0, category_id: null, day_of_month: 1, locked: true });
+        state.privacyLocked = true;
+      }
+    }
+    return hydrated;
+  }
+
+  async function hydrateAnalyticsSnapshots(rows) {
+    const hydrated = [];
+    for (const row of rows) {
+      if (!state.familyKey) {
+        hydrated.push(row);
+        continue;
+      }
+      try {
+        hydrated.push({ ...row, payload: await decryptJson(state.familyKey, row.encrypted_payload) });
+      } catch (_) {
+        hydrated.push(row);
+      }
+    }
+    return hydrated;
+  }
+
   async function encryptedExpensePayload(plain) {
     if (!state.family?.encryption_salt) throw new Error("Please set the family privacy password before entering expenses.");
     if (!state.familyKey) throw new Error("Please unlock family expenses first.");
     return encryptJson(state.familyKey, plain);
+  }
+
+  async function encryptedIncomePayload(plain) {
+    if (!state.family?.encryption_salt) throw new Error("Please set the family privacy password before entering income.");
+    if (!state.familyKey) throw new Error("Please unlock family income first.");
+    return encryptJson(state.familyKey, plain);
+  }
+
+  async function encryptedFamilyPayload(plain) {
+    if (!state.familyKey) throw new Error("Please unlock family privacy first.");
+    return encryptJson(state.familyKey, plain);
+  }
+
+  async function encryptedCategoryPayload(plain) {
+    if (!state.familyKey) throw new Error("Please unlock family privacy first.");
+    return encryptJson(state.familyKey, plain);
+  }
+
+  async function encryptedPersonPayload(plain) {
+    if (!state.familyKey) throw new Error("Please unlock family privacy first.");
+    return encryptJson(state.familyKey, plain);
+  }
+
+  async function encryptedJoinRequestPayload(plain, key = state.familyKey) {
+    if (!key) throw new Error("Please unlock family privacy first.");
+    return encryptJson(key, plain);
+  }
+
+  function familySettingsPayload(source = state.family) {
+    return {
+      name: source?.name || "Family",
+      currency_code: source?.currency_code || "INR",
+      monthly_budget: Number(source?.monthly_budget || 0),
+      savings_goal_amount: Number(source?.savings_goal_amount || 0)
+    };
+  }
+
+  function categoryPayload(source) {
+    return {
+      name: source.name,
+      scope: source.scope || "EXPENSE",
+      color: source.color || COLORS[0],
+      monthly_limit: Number(source.monthly_limit || 0)
+    };
+  }
+
+  function personPayload(source) {
+    return {
+      display_name: source.display_name || "Family member"
+    };
   }
 
   async function createFamily(form) {
@@ -2038,20 +2669,21 @@
     const familyName = requireText(data.family || "My Family", "family name", 80);
     const personName = requireText(data.person || "Me", "your display name", 80);
     const budget = data.budget ? boundedNumber(data.budget, "Monthly budget", 0, 999999999) : 0;
+    const savingsGoal = nonnegativeMoney(data.savings_goal || 0, "savings goal");
     const privacy = requireText(data.privacy, "a family privacy password", 120);
     if (privacy.length < 8) throw new Error("Family privacy password must be at least 8 characters.");
     const privacySetup = await createPrivacySetup(privacy);
 
     if (state.demo) {
       const familyId = crypto.randomUUID();
-      state.family = { id: familyId, name: familyName, currency_code: "INR", monthly_budget: budget, owner_id: state.user.id, invite_code: createInviteCode(), invite_locked: false, encryption_salt: privacySetup.salt, encryption_check: privacySetup.check };
+      state.family = { id: familyId, name: familyName, currency_code: "INR", monthly_budget: budget, savings_goal_amount: savingsGoal, owner_id: state.user.id, invite_code: createInviteCode(), invite_locked: false, encryption_salt: privacySetup.salt, encryption_check: privacySetup.check };
       state.familyKey = privacySetup.key;
       state.privacyLocked = false;
       state.membership = { family_id: familyId, role: "OWNER" };
       state.people = [{ id: crypto.randomUUID(), family_id: familyId, display_name: personName, linked_user_id: state.user.id }];
       state.categories = [
-        ...EXPENSE_DEFAULTS.map((name, index) => ({ id: crypto.randomUUID(), family_id: familyId, name, scope: "EXPENSE", color: COLORS[index % COLORS.length] })),
-        ...INCOME_DEFAULTS.map((name, index) => ({ id: crypto.randomUUID(), family_id: familyId, name, scope: "INCOME", color: COLORS[(index + 3) % COLORS.length] }))
+        ...EXPENSE_DEFAULTS.map((name, index) => ({ id: crypto.randomUUID(), family_id: familyId, name, scope: "EXPENSE", color: COLORS[index % COLORS.length], monthly_limit: 0 })),
+        ...INCOME_DEFAULTS.map((name, index) => ({ id: crypto.randomUUID(), family_id: familyId, name, scope: "INCOME", color: COLORS[(index + 3) % COLORS.length], monthly_limit: 0 }))
       ];
       writeDemo();
       clearFormDraft("create-family");
@@ -2062,19 +2694,28 @@
     const { data: family, error: familyError } = await client
       .from("budget_families")
       .insert({
-        name: familyName,
+        name: "Encrypted family",
         owner_id: state.user.id,
         currency_code: "INR",
-        monthly_budget: budget,
+        monthly_budget: 0,
+        savings_goal_amount: 0,
         invite_code: createInviteCode(),
         invite_locked: false,
         encryption_salt: privacySetup.salt,
-        encryption_check: privacySetup.check
+        encryption_check: privacySetup.check,
+        encrypted_payload: await encryptJson(privacySetup.key, {
+          name: familyName,
+          currency_code: "INR",
+          monthly_budget: budget,
+          savings_goal_amount: savingsGoal
+        }),
+        encryption_version: 1
       })
       .select()
       .single();
     if (familyError) throw familyError;
     await rememberFamilyKey(family.id, privacySetup.key);
+    state.familyKey = privacySetup.key;
 
     const { error: memberError } = await client
       .from("budget_family_users")
@@ -2083,7 +2724,14 @@
 
     const { error: personError } = await client
       .from("budget_people")
-      .insert({ family_id: family.id, display_name: personName, linked_user_id: state.user.id, created_by: state.user.id });
+      .insert({
+        family_id: family.id,
+        display_name: "Encrypted member",
+        linked_user_id: state.user.id,
+        created_by: state.user.id,
+        encrypted_payload: await encryptJson(privacySetup.key, { display_name: personName }),
+        encryption_version: 1
+      });
     if (personError) throw personError;
 
     await seedDefaultCategories(family.id);
@@ -2092,10 +2740,20 @@
   }
 
   async function seedDefaultCategories(familyId) {
-    const rows = [
-      ...EXPENSE_DEFAULTS.map((name, index) => ({ family_id: familyId, name, scope: "EXPENSE", color: COLORS[index % COLORS.length], created_by: state.user.id })),
-      ...INCOME_DEFAULTS.map((name, index) => ({ family_id: familyId, name, scope: "INCOME", color: COLORS[(index + 3) % COLORS.length], created_by: state.user.id }))
+    const defaults = [
+      ...EXPENSE_DEFAULTS.map((name, index) => ({ name, scope: "EXPENSE", color: COLORS[index % COLORS.length], monthly_limit: 0 })),
+      ...INCOME_DEFAULTS.map((name, index) => ({ name, scope: "INCOME", color: COLORS[(index + 3) % COLORS.length], monthly_limit: 0 }))
     ];
+    const rows = await Promise.all(defaults.map(async (category) => ({
+      family_id: familyId,
+      name: `Encrypted category ${crypto.randomUUID().slice(0, 8)}`,
+      scope: "EXPENSE",
+      color: COLORS[0],
+      monthly_limit: 0,
+      created_by: state.user.id,
+      encrypted_payload: await encryptedCategoryPayload(category),
+      encryption_version: 1
+    })));
     const { error } = await client.from("budget_categories").insert(rows);
     if (error) throw error;
   }
@@ -2106,6 +2764,7 @@
     const code = requireText(data.code, "invite code", 32).toUpperCase();
     const person = requireText(data.person || "Family member", "your display name", 80);
     const privacy = requireText(data.privacy, "the family privacy password", 120);
+    let familyKeyForJoin = null;
     const { data: securityRows, error: securityError } = await client.rpc("get_budget_invite_security", {
       invite_code_input: code
     });
@@ -2113,14 +2772,26 @@
     const security = securityRows?.[0];
     if (!security) throw new Error("Invite code is invalid or locked.");
     if (security.encryption_salt && security.encryption_check) {
-      const key = await verifyPrivacyKey(privacy, security.encryption_salt, security.encryption_check);
-      await rememberFamilyKey(security.family_id, key);
+      familyKeyForJoin = await verifyPrivacyKey(privacy, security.encryption_salt, security.encryption_check);
+      await rememberFamilyKey(security.family_id, familyKeyForJoin);
     }
-    const { error } = await client.rpc("join_budget_invite", {
+    const { data: joinedFamilyId, error } = await client.rpc("join_budget_invite", {
       invite_code_input: code,
       display_name_input: person
     });
     if (error) throw error;
+    if (familyKeyForJoin && joinedFamilyId) {
+      const { error: requestEncryptError } = await client
+        .from("budget_join_requests")
+        .update({
+          display_name: "Encrypted request",
+          encrypted_payload: await encryptedJoinRequestPayload({ display_name: person }, familyKeyForJoin),
+          encryption_version: 1
+        })
+        .eq("family_id", joinedFamilyId)
+        .eq("user_id", state.user.id);
+      if (requestEncryptError) throw requestEncryptError;
+    }
     clearFormDraft("join-family");
     await load();
   }
@@ -2163,6 +2834,7 @@
 
   async function reviewJoinRequest(id, decision) {
     if (state.membership?.role !== "OWNER") throw new Error("Only the family moderator can review join requests.");
+    const request = state.joinRequests.find((item) => item.id === id);
     if (state.demo) {
       state.joinRequests = state.joinRequests.map((request) => request.id === id ? { ...request, status: decision } : request);
       writeDemo();
@@ -2174,6 +2846,27 @@
       decision_input: decision
     });
     if (error) throw error;
+    if (decision === "APPROVED" && request?.user_id && request?.display_name && state.familyKey) {
+      const { data: peopleRows, error: peopleError } = await client
+        .from("budget_people")
+        .select("id")
+        .eq("family_id", state.family.id)
+        .eq("linked_user_id", request.user_id)
+        .limit(1);
+      if (peopleError) throw peopleError;
+      const personId = peopleRows?.[0]?.id;
+      if (personId) {
+        const { error: personEncryptError } = await client
+          .from("budget_people")
+          .update({
+            display_name: "Encrypted member",
+            encrypted_payload: await encryptedPersonPayload({ display_name: request.display_name }),
+            encryption_version: 1
+          })
+          .eq("id", personId);
+        if (personEncryptError) throw personEncryptError;
+      }
+    }
     await load();
   }
 
@@ -2276,6 +2969,7 @@
       : client.from("budget_expenses").insert(databasePayload);
     const { error } = await query;
     if (error) throw error;
+    queueAnalyticsSnapshot(monthKey(payload.spent_on));
     state.modal = null;
     await load();
   }
@@ -2293,6 +2987,7 @@
     }
     const { error } = await client.from("budget_expenses").delete().eq("id", id);
     if (error) throw error;
+    if (expense?.spent_on) queueAnalyticsSnapshot(monthKey(expense.spent_on));
     state.modal = null;
     await load();
   }
@@ -2319,11 +3014,24 @@
       return;
     }
 
+    const encryptedPayload = await encryptedIncomePayload(payload);
+    const databasePayload = {
+      family_id: state.family.id,
+      title: "Encrypted income",
+      amount: 1,
+      day_of_month: 1,
+      category_id: null,
+      is_active: true,
+      created_by: state.user.id,
+      encrypted_payload: encryptedPayload,
+      encryption_version: 1
+    };
     const query = id
-      ? client.from("budget_incomes").update(payload).eq("id", id)
-      : client.from("budget_incomes").insert(payload);
+      ? client.from("budget_incomes").update(databasePayload).eq("id", id)
+      : client.from("budget_incomes").insert(databasePayload);
     const { error } = await query;
     if (error) throw error;
+    queueAnalyticsSnapshot(currentMonth());
     state.modal = null;
     await load();
   }
@@ -2337,8 +3045,27 @@
       render();
       return;
     }
-    const { error } = await client.from("budget_incomes").update({ is_active: !income.is_active }).eq("id", id);
+    const payload = {
+      family_id: state.family.id,
+      title: income.title,
+      amount: Number(income.amount || 0),
+      day_of_month: Number(income.day_of_month || 1),
+      category_id: income.category_id || null,
+      is_active: !income.is_active,
+      created_by: income.created_by || state.user.id
+    };
+    const encryptedPayload = await encryptedIncomePayload(payload);
+    const { error } = await client.from("budget_incomes").update({
+      title: "Encrypted income",
+      amount: 1,
+      day_of_month: 1,
+      category_id: null,
+      is_active: true,
+      encrypted_payload: encryptedPayload,
+      encryption_version: 1
+    }).eq("id", id);
     if (error) throw error;
+    queueAnalyticsSnapshot(currentMonth());
     await load();
   }
 
@@ -2354,6 +3081,7 @@
     }
     const { error } = await client.from("budget_incomes").delete().eq("id", id);
     if (error) throw error;
+    queueAnalyticsSnapshot(currentMonth());
     await load();
   }
 
@@ -2365,6 +3093,7 @@
       name: requireText(data.name, "category name", 80),
       scope: data.scope || state.scope,
       color: data.color || COLORS[0],
+      monthly_limit: nonnegativeMoney(data.monthly_limit || 0, "monthly category limit"),
       created_by: state.user.id
     };
     if (!/^#[0-9a-f]{6}$/i.test(payload.color)) throw new Error("Please choose a valid category color.");
@@ -2386,9 +3115,20 @@
       return;
     }
 
+    const encryptedPayload = await encryptedCategoryPayload(categoryPayload(payload));
+    const databasePayload = {
+      family_id: state.family.id,
+      name: id ? (state.categories.find((category) => category.id === id)?.name?.startsWith("Encrypted category") ? state.categories.find((category) => category.id === id).name : `Encrypted category ${String(id).slice(0, 8)}`) : `Encrypted category ${crypto.randomUUID().slice(0, 8)}`,
+      scope: "EXPENSE",
+      color: COLORS[0],
+      monthly_limit: 0,
+      created_by: state.user.id,
+      encrypted_payload: encryptedPayload,
+      encryption_version: 1
+    };
     const query = id
-      ? client.from("budget_categories").update(payload).eq("id", id)
-      : client.from("budget_categories").insert(payload);
+      ? client.from("budget_categories").update(databasePayload).eq("id", id)
+      : client.from("budget_categories").insert(databasePayload);
     const { error } = await query;
     if (error) {
       if (isCategoryNameConflict(error)) {
@@ -2399,6 +3139,7 @@
       }
       throw error;
     }
+    if (payload.scope === "EXPENSE") queueAnalyticsSnapshot(selectedMonth());
     state.modal = null;
     await load();
   }
@@ -2415,7 +3156,185 @@
     }
     const { error } = await client.from("budget_categories").delete().eq("id", id);
     if (error) throw error;
+    queueAnalyticsSnapshot(selectedMonth());
     await load();
+  }
+
+  async function saveFamilyPlanning(form) {
+    if (state.membership?.role !== "OWNER") throw new Error("Only the family moderator can change the monthly plan.");
+    const data = Object.fromEntries(new FormData(form).entries());
+    const payload = {
+      monthly_budget: nonnegativeMoney(data.monthly_budget || 0, "monthly budget"),
+      savings_goal_amount: nonnegativeMoney(data.savings_goal_amount || 0, "savings goal")
+    };
+    if (state.demo) {
+      state.family = { ...state.family, ...payload };
+      writeDemo();
+      render();
+      return;
+    }
+    const encryptedPayload = await encryptedFamilyPayload(familySettingsPayload({ ...state.family, ...payload }));
+    const { error } = await client.from("budget_families").update({
+      name: "Encrypted family",
+      monthly_budget: 0,
+      savings_goal_amount: 0,
+      encrypted_payload: encryptedPayload,
+      encryption_version: 1
+    }).eq("id", state.family.id);
+    if (error) throw error;
+    queueAnalyticsSnapshot(selectedMonth());
+    await load();
+  }
+
+  async function saveCategoryLimits(form) {
+    if (state.membership?.role !== "OWNER") throw new Error("Only the family moderator can change category limits.");
+    const fields = [...form.querySelectorAll("[data-limit-category]")];
+    const updates = activeExpenseCategories().map((category) => {
+      const field = fields.find((input) => input.dataset.limitCategory === category.id);
+      return {
+        id: category.id,
+        monthly_limit: nonnegativeMoney(field?.value || 0, `${category.name} monthly limit`)
+      };
+    });
+    if (state.demo) {
+      state.categories = state.categories.map((category) => {
+        const update = updates.find((item) => item.id === category.id);
+        return update ? { ...category, monthly_limit: update.monthly_limit } : category;
+      });
+      state.modal = null;
+      writeDemo();
+      render();
+      return;
+    }
+    for (const update of updates) {
+      const category = state.categories.find((item) => item.id === update.id);
+      if (!category) continue;
+      const { error } = await client
+        .from("budget_categories")
+        .update({
+          name: `Encrypted category ${String(update.id).slice(0, 8)}`,
+          scope: "EXPENSE",
+          color: COLORS[0],
+          monthly_limit: 0,
+          encrypted_payload: await encryptedCategoryPayload(categoryPayload({ ...category, monthly_limit: update.monthly_limit })),
+          encryption_version: 1
+        })
+        .eq("id", update.id)
+        .eq("family_id", state.family.id);
+      if (error) throw error;
+    }
+    queueAnalyticsSnapshot(selectedMonth());
+    state.modal = null;
+    await load();
+  }
+
+  async function migratePlaintextPrivacyRows() {
+    if (state.demo || privacyMigrationRunning || !state.familyKey || state.privacyLocked || !state.family?.id) return;
+    const hasWork =
+      state.family.needsEncryptionMigration ||
+      state.people.some((person) => person.needsEncryptionMigration) ||
+      state.categories.some((category) => category.needsEncryptionMigration) ||
+      state.joinRequests.some((request) => request.needsEncryptionMigration) ||
+      state.expenses.some((expense) => expense.needsEncryptionMigration) ||
+      state.incomes.some((income) => income.needsEncryptionMigration);
+    if (!hasWork) return;
+
+    privacyMigrationRunning = true;
+    try {
+      if (state.family.needsEncryptionMigration) {
+        const { error } = await client.from("budget_families").update({
+          name: "Encrypted family",
+          monthly_budget: 0,
+          savings_goal_amount: 0,
+          encrypted_payload: await encryptedFamilyPayload(familySettingsPayload(state.family)),
+          encryption_version: 1
+        }).eq("id", state.family.id);
+        if (error) throw error;
+      }
+
+      for (const person of state.people.filter((item) => item.needsEncryptionMigration)) {
+        const { error } = await client.from("budget_people").update({
+          display_name: "Encrypted member",
+          encrypted_payload: await encryptedPersonPayload(personPayload(person)),
+          encryption_version: 1
+        }).eq("id", person.id);
+        if (error) throw error;
+      }
+
+      for (const category of state.categories.filter((item) => item.needsEncryptionMigration)) {
+        const { error } = await client.from("budget_categories").update({
+          name: `Encrypted category ${String(category.id).slice(0, 8)}`,
+          scope: "EXPENSE",
+          color: COLORS[0],
+          monthly_limit: 0,
+          encrypted_payload: await encryptedCategoryPayload(categoryPayload(category)),
+          encryption_version: 1
+        }).eq("id", category.id);
+        if (error) throw error;
+      }
+
+      for (const request of state.joinRequests.filter((item) => item.needsEncryptionMigration)) {
+        const { error } = await client.from("budget_join_requests").update({
+          display_name: "Encrypted request",
+          encrypted_payload: await encryptedJoinRequestPayload({ display_name: request.display_name }),
+          encryption_version: 1
+        }).eq("id", request.id);
+        if (error) throw error;
+      }
+
+      for (const expense of state.expenses.filter((item) => item.needsEncryptionMigration)) {
+        const payload = {
+          family_id: state.family.id,
+          title: expense.title,
+          amount: Number(expense.amount || 0),
+          spent_on: expense.spent_on || todayKey(),
+          person_id: expense.person_id,
+          category_id: expense.category_id || null,
+          note: expense.note || null,
+          entered_by: expense.entered_by || state.user.id
+        };
+        const shellPerson = currentUserPerson()?.id || expense.person_id;
+        const { error } = await client.from("budget_expenses").update({
+          title: "Encrypted expense",
+          amount: 1,
+          spent_on: todayKey(),
+          person_id: shellPerson,
+          category_id: null,
+          note: null,
+          encrypted_payload: await encryptedExpensePayload(payload),
+          encryption_version: 1
+        }).eq("id", expense.id);
+        if (error) throw error;
+      }
+
+      for (const income of state.incomes.filter((item) => item.needsEncryptionMigration)) {
+        const payload = {
+          family_id: state.family.id,
+          title: income.title,
+          amount: Number(income.amount || 0),
+          day_of_month: Number(income.day_of_month || 1),
+          category_id: income.category_id || null,
+          is_active: income.is_active !== false,
+          created_by: income.created_by || state.user.id
+        };
+        const { error } = await client.from("budget_incomes").update({
+          title: "Encrypted income",
+          amount: 1,
+          day_of_month: 1,
+          category_id: null,
+          is_active: true,
+          encrypted_payload: await encryptedIncomePayload(payload),
+          encryption_version: 1
+        }).eq("id", income.id);
+        if (error) throw error;
+      }
+
+      queueRefresh(100);
+    } catch (error) {
+      showError(error);
+    } finally {
+      privacyMigrationRunning = false;
+    }
   }
 
   async function savePerson(form) {
@@ -2436,9 +3355,16 @@
       return;
     }
 
+    const databasePayload = {
+      family_id: state.family.id,
+      display_name: "Encrypted member",
+      created_by: state.user.id,
+      encrypted_payload: await encryptedPersonPayload(personPayload(payload)),
+      encryption_version: 1
+    };
     const query = id
-      ? client.from("budget_people").update(payload).eq("id", id)
-      : client.from("budget_people").insert(payload);
+      ? client.from("budget_people").update(databasePayload).eq("id", id)
+      : client.from("budget_people").insert(databasePayload);
     const { error } = await query;
     if (error) throw error;
     state.modal = null;

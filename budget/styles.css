@@ -1409,6 +1409,298 @@ button {
   text-overflow: ellipsis;
 }
 
+.planning-form,
+.category-limit-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.budget-goals-card {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 16px;
+}
+
+.budget-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.budget-card-head span,
+.limit-summary-row span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.budget-card-head h2 {
+  margin: 0;
+  color: var(--primary);
+  font-size: 24px;
+  line-height: 1.05;
+}
+
+.budget-card-head .compact {
+  min-width: 74px;
+  min-height: 38px;
+}
+
+.plan-value-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.plan-value-grid article {
+  min-width: 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: #f7f9f5;
+  border: 1px solid var(--line);
+}
+
+.plan-value-grid span {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.plan-value-grid strong {
+  display: block;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 21px;
+  font-weight: 950;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.budget-status-list {
+  display: grid;
+  gap: 8px;
+}
+
+.budget-meter {
+  display: grid;
+  gap: 6px;
+}
+
+.budget-meter > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.budget-meter span {
+  color: var(--muted);
+}
+
+.budget-meter strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.budget-meter i {
+  display: block;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #edf1ec;
+}
+
+.budget-meter b {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--primary);
+}
+
+.budget-meter.gold b {
+  background: var(--secondary);
+}
+
+.budget-meter.warn b {
+  background: var(--danger);
+}
+
+.category-limit-panel {
+  padding: 14px 16px;
+}
+
+.limit-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.limit-summary-row > div {
+  min-width: 0;
+}
+
+.limit-summary-row strong {
+  display: block;
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: 950;
+  line-height: 1.1;
+}
+
+.limit-summary-row small {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--muted);
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.planning-form h2,
+.category-limit-panel h2 {
+  margin: 0;
+}
+
+.compact-head {
+  align-items: flex-start;
+  margin-bottom: 0;
+}
+
+.limit-row {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.limit-row:last-child {
+  border-bottom: 0;
+}
+
+.limit-row div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.limit-row strong,
+.limit-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.limit-row small {
+  color: var(--muted);
+  font-weight: 750;
+}
+
+.family-plan-sheet {
+  display: grid;
+  gap: 14px;
+}
+
+.family-plan-sheet .field {
+  margin-bottom: 0;
+}
+
+.family-plan-sheet small {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  font-weight: 750;
+}
+
+.privacy-confirm-line {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 38px;
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.category-limits-sheet {
+  display: grid;
+  gap: 12px;
+}
+
+.category-limit-scroll {
+  display: grid;
+  max-height: min(54vh, 460px);
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.limit-edit-row {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 100px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.limit-edit-row:last-child {
+  border-bottom: 0;
+}
+
+.limit-edit-row div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.limit-edit-row strong,
+.limit-edit-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.limit-edit-row small,
+.limit-edit-row label span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.limit-edit-row label {
+  display: grid;
+  gap: 4px;
+}
+
+.limit-edit-row .input {
+  min-height: 42px;
+  padding: 0 9px;
+  text-align: right;
+}
+
+.sticky-sheet-actions {
+  position: sticky;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: 10px;
+  padding-top: 12px;
+  background: var(--panel);
+}
+
 .month-reset-note,
 .month-note {
   margin: 12px 0;

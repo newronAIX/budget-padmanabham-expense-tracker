@@ -7,8 +7,9 @@ The app keeps daily entry simple for older family members:
 - Google-only sign-in through Supabase Auth.
 - One clear "Add expense" flow.
 - Expense date defaults to the current date.
-- Family people are separate from login users, so one signed-in person can enter expenses for elders or relatives who do not log in.
-- Family dashboard, expenses, editing/deleting expenses, recurring income, categories, insights, people, invite codes, and sign out.
+- Invite-code family setup with moderator approval, member removal, invite locking, and invite rotation.
+- Family dashboard, expenses, editing/deleting expenses, recurring income, categories, budget limits, savings goals, insights, invite codes, and sign out.
+- Browser-side family encryption for family names, member display names, categories, monthly plans, expenses, income, and analytics snapshots.
 - Large touch targets and plain labels.
 
 ## Run Locally
@@ -52,4 +53,11 @@ Production hardening files are included:
 - `vercel.json` for Vercel headers and SPA fallback.
 - `_headers` and `_redirects` for compatible static hosts.
 - `site.webmanifest` and `favicon.svg` for mobile web polish.
+- `terms.html` for user-facing terms, privacy, and data collection policy.
 - `PRODUCTION.md` for the launch checklist.
+
+## Privacy Model
+
+Approved family members unlock the family ledger in the browser with the shared family privacy password. Supabase stores authentication and operational metadata, plus encrypted payloads for family content. The database owner can still see metadata such as emails, user ids, row ids, timestamps, invite status, and encrypted text, but should not be able to read encrypted family content without the family privacy password.
+
+Existing legacy plaintext rows are migrated to encrypted payloads after an approved family member opens the updated app and unlocks the family. If all approved members lose the family privacy password, encrypted content cannot be recovered.
