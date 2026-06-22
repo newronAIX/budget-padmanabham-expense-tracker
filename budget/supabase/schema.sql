@@ -868,3 +868,32 @@ for update to authenticated using (
 ) with check (
   status in ('PENDING', 'ACCEPTED', 'EXPIRED')
 );
+
+do $$
+declare
+  table_name text;
+begin
+  foreach table_name in array array[
+    'budget_families',
+    'budget_family_users',
+    'budget_join_requests',
+    'budget_people',
+    'budget_categories',
+    'budget_expenses',
+    'budget_incomes'
+  ] loop
+    execute format('alter table public.%I replica identity full', table_name);
+
+    if exists (select 1 from pg_publication where pubname = 'supabase_realtime')
+      and not exists (
+        select 1
+        from pg_publication_tables
+        where pubname = 'supabase_realtime'
+          and schemaname = 'public'
+          and tablename = table_name
+      ) then
+      execute format('alter publication supabase_realtime add table public.%I', table_name);
+    end if;
+  end loop;
+end;
+$$;

@@ -46,6 +46,8 @@
     modal: initialModal,
     sort: "date",
     selectedMonth: initialMonth,
+    dateFrom: null,
+    dateTo: null,
     scope: "EXPENSE",
     busy: false,
     checkingSession: hasSupabase && !previewMode,
@@ -57,6 +59,11 @@
   const app = document.getElementById("app");
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
+  let realtimeChannel = null;
+  let realtimeFamilyId = "";
+  let refreshTimer = null;
+  let refreshInterval = null;
+  let refreshAfterModal = false;
 
   const todayKey = () => {
     const d = new Date();
@@ -95,6 +102,32 @@
     date.setMonth(date.getMonth() + delta);
     date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
     return date.toISOString().slice(0, 7);
+  }
+
+  function monthStart(key = selectedMonth()) {
+    return `${key || currentMonth()}-01`;
+  }
+
+  function monthEnd(key = selectedMonth()) {
+    const date = new Date(`${key || currentMonth()}-01T00:00:00`);
+    date.setMonth(date.getMonth() + 1, 0);
+    date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+    return date.toISOString().slice(0, 10);
+  }
+
+  function rangeStart() {
+    return state.dateFrom || monthStart(selectedMonth());
+  }
+
+  function rangeEnd() {
+    return state.dateTo || monthEnd(selectedMonth());
+  }
+
+  function expensesForRange(start = rangeStart(), end = rangeEnd()) {
+    return state.expenses.filter((expense) => {
+      const spentOn = expense.spent_on || todayKey();
+      return spentOn >= start && spentOn <= end;
+    });
   }
 
   function readDemo() {
@@ -259,6 +292,7 @@
       state.checkingSession = false;
       load().catch(showError);
     });
+    setupAutoRefresh();
     state.checkingSession = false;
     await load();
   }
@@ -276,6 +310,7 @@
     state.error = "";
     if (!state.user) {
       state.family = null;
+      stopRealtime();
       render();
       return;
     }
@@ -313,6 +348,11 @@
       state.joinRequests = [];
       state.pendingRequest = pendingRows?.[0] || null;
       state.privacyLocked = false;
+      if (state.pendingRequest) {
+        ensurePendingRealtime(state.user.id);
+      } else {
+        stopRealtime();
+      }
       render();
       return;
     }
@@ -358,7 +398,68 @@
     state.incomes = incomesRes.data || [];
     state.invites = [];
     state.joinRequests = requestsRes.data || [];
+    ensureRealtime(familyId);
     render();
+  }
+
+  function setupAutoRefresh() {
+    if (refreshInterval || state.demo) return;
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && state.user) queueRefresh(50);
+    });
+    window.addEventListener("focus", () => {
+      if (state.user) queueRefresh(50);
+    });
+    refreshInterval = window.setInterval(() => {
+      if (state.user && !document.hidden) queueRefresh(0);
+    }, 20000);
+  }
+
+  function queueRefresh(delay = 400) {
+    if (state.demo || !state.user || state.checkingSession) return;
+    if (state.modal) {
+      refreshAfterModal = true;
+      return;
+    }
+    clearTimeout(refreshTimer);
+    refreshTimer = window.setTimeout(() => {
+      load().catch(showError);
+    }, delay);
+  }
+
+  function stopRealtime() {
+    if (realtimeChannel && client) client.removeChannel(realtimeChannel);
+    realtimeChannel = null;
+    realtimeFamilyId = "";
+  }
+
+  function ensureRealtime(familyId) {
+    if (!client || state.demo || !familyId || realtimeFamilyId === familyId) return;
+    stopRealtime();
+    const reload = () => queueRefresh(250);
+    realtimeFamilyId = familyId;
+    realtimeChannel = client
+      .channel(`budget-family-${familyId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "budget_families", filter: `id=eq.${familyId}` }, reload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "budget_family_users", filter: `family_id=eq.${familyId}` }, reload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "budget_join_requests", filter: `family_id=eq.${familyId}` }, reload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "budget_people", filter: `family_id=eq.${familyId}` }, reload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "budget_categories", filter: `family_id=eq.${familyId}` }, reload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "budget_expenses", filter: `family_id=eq.${familyId}` }, reload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "budget_incomes", filter: `family_id=eq.${familyId}` }, reload)
+      .subscribe();
+  }
+
+  function ensurePendingRealtime(userId) {
+    const key = `pending:${userId}`;
+    if (!client || state.demo || !userId || realtimeFamilyId === key) return;
+    stopRealtime();
+    const reload = () => queueRefresh(250);
+    realtimeFamilyId = key;
+    realtimeChannel = client
+      .channel(`budget-pending-${userId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "budget_join_requests", filter: `user_id=eq.${userId}` }, reload)
+      .subscribe();
   }
 
   async function upsertProfile() {
@@ -541,6 +642,10 @@
       ${state.modal ? modal() : ""}
     `;
     bind();
+    if (!state.modal && refreshAfterModal) {
+      refreshAfterModal = false;
+      queueRefresh(0);
+    }
   }
 
   function topbar() {
@@ -812,15 +917,19 @@
 
   function expensesScreen() {
     const month = selectedMonth();
-    const list = sortedExpenses(month);
-    const total = spendForMonth(month);
+    const start = rangeStart();
+    const end = rangeEnd();
+    const list = sortedExpenses(start, end);
+    const total = list.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+    const members = totalsBy(list, (e) => e.person_id, (e) => personName(e.person_id), (e) => personColor(e.person_id));
+    const categories = totalsBy(list, (e) => e.category_id || "none", (e) => categoryName(e.category_id), (e) => categoryColor(e.category_id));
     const isCurrent = month === currentMonth();
     return `
       <section class="card panel">
         <div class="section-head">
           <div>
-            <h2>${isCurrent ? "This month's expenses" : "Previous month expenses"}</h2>
-            <p class="section-subtitle">${monthLabel(month)} · ${list.length} entries · ${money(total)}</p>
+            <h2>Expenses</h2>
+            <p class="section-subtitle">${niceDate(start)} to ${niceDate(end)} · ${list.length} entries · ${money(total)}</p>
           </div>
           <button class="primary compact" data-modal="expense">Add expense</button>
         </div>
@@ -831,23 +940,41 @@
           </select>
           <button class="secondary" data-month-current ${isCurrent ? "disabled" : ""}>This month</button>
         </div>
-        <div class="month-note">${isCurrent ? "New month starts fresh automatically on the 1st." : "These entries are kept as family history and do not mix with the current month."}</div>
-        <div class="toolbar">
+        <div class="range-grid">
+          <label class="field">From<input class="input" type="date" data-date-from value="${escapeHtml(start)}"></label>
+          <label class="field">To<input class="input" type="date" data-date-to value="${escapeHtml(end)}"></label>
+        </div>
+        <div class="month-note">${start === monthStart(month) && end === monthEnd(month) ? (isCurrent ? "New month starts fresh automatically on the 1st." : "Previous month expenses stay separate from this month.") : "Custom range is active. Analysis below follows these dates."}</div>
+        <section class="expense-analysis-grid">
+          <div class="analysis-panel">
+            <strong>Who spent how much</strong>
+            ${members.length ? miniBars(members.slice(0, 6)) : `<p>No member spend in this range.</p>`}
+          </div>
+          <div class="analysis-panel">
+            <strong>By category</strong>
+            ${categories.length ? miniBars(categories.slice(0, 6)) : `<p>No category spend in this range.</p>`}
+          </div>
+        </section>
+        <div class="toolbar expense-toolbar">
           <select class="input" data-sort>
             <option value="date" ${state.sort === "date" ? "selected" : ""}>Sort by date</option>
             <option value="person" ${state.sort === "person" ? "selected" : ""}>Sort by person</option>
             <option value="category" ${state.sort === "category" ? "selected" : ""}>Sort by category</option>
+            <option value="amount" ${state.sort === "amount" ? "selected" : ""}>Sort by amount</option>
           </select>
         </div>
-        ${list.length ? list.map(expenseRow).join("") : emptyState(isCurrent ? "No expenses this month" : "No expenses in this month", isCurrent ? "Use Add expense to start this month's ledger." : "Choose another month to see older entries.")}
+        <div class="expense-scroll-list">
+          ${list.length ? list.map(expenseRow).join("") : emptyState("No expenses in this range", "Change the dates or add a new expense.")}
+        </div>
       </section>
     `;
   }
 
-  function sortedExpenses(month = selectedMonth()) {
-    const list = [...expensesForMonth(month)];
+  function sortedExpenses(start = rangeStart(), end = rangeEnd()) {
+    const list = [...expensesForRange(start, end)];
     if (state.sort === "person") return list.sort((a, b) => personName(a.person_id).localeCompare(personName(b.person_id)));
     if (state.sort === "category") return list.sort((a, b) => categoryName(a.category_id).localeCompare(categoryName(b.category_id)));
+    if (state.sort === "amount") return list.sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0));
     return list.sort((a, b) => String(b.spent_on).localeCompare(String(a.spent_on)));
   }
 
@@ -856,11 +983,11 @@
     const color = expense.budget_categories?.color || categoryColor(expense.category_id);
     const person = expense.budget_people?.display_name || personName(expense.person_id);
     return `
-      <article class="item">
+      <article class="item expense-item">
         <span class="avatar" style="background:${softColor(color)};color:${color}">${personInitial(person)}</span>
         <div class="item-main">
-          <strong>${escapeHtml(expense.title)}</strong>
-          <span>${escapeHtml(category)} · ${escapeHtml(person)} · ${niceDate(expense.spent_on)}</span>
+          <strong class="expense-title-tag" title="${escapeHtml(expense.title)}">${escapeHtml(expense.title)}</strong>
+          <span class="expense-meta"><i>${escapeHtml(category)}</i><i>${escapeHtml(person)}</i><i>${niceDate(expense.spent_on)}</i></span>
           ${expense.note ? `<small>${escapeHtml(expense.note)}</small>` : ""}
         </div>
         <div class="item-side">
@@ -1254,18 +1381,37 @@
     });
     document.querySelector("[data-month-select]")?.addEventListener("change", (event) => {
       state.selectedMonth = event.target.value;
+      state.dateFrom = monthStart(state.selectedMonth);
+      state.dateTo = monthEnd(state.selectedMonth);
       render();
     });
     document.querySelector("[data-month-current]")?.addEventListener("click", () => {
       state.selectedMonth = currentMonth();
+      state.dateFrom = monthStart(state.selectedMonth);
+      state.dateTo = monthEnd(state.selectedMonth);
       render();
     });
     document.querySelectorAll("[data-month-shift]").forEach((button) => button.addEventListener("click", () => {
       state.selectedMonth = shiftMonth(selectedMonth(), Number(button.dataset.monthShift || 0));
+      state.dateFrom = monthStart(state.selectedMonth);
+      state.dateTo = monthEnd(state.selectedMonth);
       render();
     }));
+    document.querySelector("[data-date-from]")?.addEventListener("change", (event) => {
+      state.dateFrom = safeDate(event.target.value);
+      if (state.dateTo && state.dateFrom > state.dateTo) state.dateTo = state.dateFrom;
+      state.selectedMonth = monthKey(state.dateFrom);
+      render();
+    });
+    document.querySelector("[data-date-to]")?.addEventListener("change", (event) => {
+      state.dateTo = safeDate(event.target.value);
+      if (state.dateFrom && state.dateTo < state.dateFrom) state.dateFrom = state.dateTo;
+      render();
+    });
     document.querySelectorAll("[data-month-jump]").forEach((button) => button.addEventListener("click", () => {
       state.selectedMonth = button.dataset.monthJump;
+      state.dateFrom = monthStart(state.selectedMonth);
+      state.dateTo = monthEnd(state.selectedMonth);
       state.tab = "expenses";
       render();
     }));

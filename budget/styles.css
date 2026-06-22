@@ -693,6 +693,116 @@ button {
   margin-bottom: 10px;
 }
 
+.range-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.range-grid .field {
+  margin-bottom: 0;
+}
+
+.expense-analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.analysis-panel {
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcf8;
+}
+
+.analysis-panel > strong {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.analysis-panel p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.analysis-panel .mini-bar {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 10px;
+  margin: 8px 0;
+}
+
+.analysis-panel .mini-bar span,
+.analysis-panel .mini-bar strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.analysis-panel .mini-bar .bar {
+  grid-column: 1 / -1;
+}
+
+.expense-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 260px);
+}
+
+.expense-scroll-list {
+  max-height: min(58vh, 620px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  border-top: 1px solid var(--line);
+}
+
+.expense-item {
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 10px 0;
+}
+
+.expense-item .avatar {
+  width: 36px;
+  height: 36px;
+}
+
+.expense-title-tag {
+  display: inline-block;
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--wash);
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.expense-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.expense-meta i {
+  max-width: 150px;
+  overflow: hidden;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #f3f6f0;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .budget-row,
 .mini-bar,
 .history-row {
@@ -1272,6 +1382,10 @@ button {
 
   .mini-bar {
     grid-template-columns: 1fr;
+  }
+
+  .expense-scroll-list {
+    padding-bottom: 92px;
   }
 
   .bottom-nav {
