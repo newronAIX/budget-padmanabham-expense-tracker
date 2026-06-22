@@ -867,12 +867,11 @@
         ${metric("Money left", money(savings), income ? "Income minus expenses" : "Add income to track balance")}
       </section>
       <section class="dashboard-grid">
-        <div class="card panel">
+        <div class="card panel recent-panel">
           <div class="section-head">
             <h2>Recent expenses</h2>
-            <button class="text-button" data-tab="expenses">View all</button>
           </div>
-          ${recent.length ? recent.map(expenseRow).join("") : emptyState("No expenses yet", "Tap Add expense and record the first one.")}
+          ${recent.length ? recent.map((expense) => expenseRow(expense, { compact: true })).join("") : emptyState("No expenses yet", "Tap Add expense and record the first one.")}
         </div>
         <aside class="card panel">
           <h2>Monthly picture</h2>
@@ -978,10 +977,23 @@
     return list.sort((a, b) => String(b.spent_on).localeCompare(String(a.spent_on)));
   }
 
-  function expenseRow(expense) {
+  function expenseRow(expense, options = {}) {
+    const isCompact = Boolean(options.compact);
     const category = expense.budget_categories?.name || categoryName(expense.category_id);
     const color = expense.budget_categories?.color || categoryColor(expense.category_id);
     const person = expense.budget_people?.display_name || personName(expense.person_id);
+    if (isCompact) {
+      return `
+        <article class="item compact-expense-item">
+          <span class="avatar" style="background:${softColor(color)};color:${color}">${personInitial(person)}</span>
+          <div class="item-main">
+            <strong class="expense-title-tag" title="${escapeHtml(expense.title)}">${escapeHtml(expense.title)}</strong>
+            <span class="compact-meta"><b>${money(expense.amount)}</b><i>${escapeHtml(category)}</i></span>
+          </div>
+        </article>
+      `;
+    }
+
     return `
       <article class="item expense-item">
         <span class="avatar" style="background:${softColor(color)};color:${color}">${personInitial(person)}</span>
@@ -992,13 +1004,29 @@
         </div>
         <div class="item-side">
           <strong>${money(expense.amount)}</strong>
-          <div class="item-actions">
-            <button data-edit-expense="${expense.id}">Edit</button>
-            <button data-delete-expense="${expense.id}">Delete</button>
-          </div>
+          ${expenseActions(expense)}
         </div>
       </article>
     `;
+  }
+
+  function expenseActions(expense) {
+    const title = expense.title || "expense";
+    return `
+      <div class="item-actions">
+        ${iconAction("edit", expense.id, `Edit ${title}`)}
+        ${iconAction("delete", expense.id, `Delete ${title}`)}
+      </div>
+    `;
+  }
+
+  function iconAction(action, id, label) {
+    const isDelete = action === "delete";
+    const attribute = isDelete ? `data-delete-expense="${escapeHtml(id)}"` : `data-edit-expense="${escapeHtml(id)}"`;
+    const svg = isDelete
+      ? `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 14h10l1-14"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg>`
+      : `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>`;
+    return `<button class="icon-action ${isDelete ? "danger-icon" : ""}" type="button" ${attribute} aria-label="${escapeHtml(label)}" title="${isDelete ? "Delete" : "Edit"}">${svg}</button>`;
   }
 
   function insightsScreen() {
@@ -1931,7 +1959,9 @@
   }
 
   async function deleteExpense(id) {
-    if (!window.confirm("Delete this expense?")) return;
+    const expense = state.expenses.find((item) => item.id === id);
+    const label = expense ? `${expense.title} - ${money(expense.amount)}` : "this expense";
+    if (!window.confirm(`Delete ${label}?\n\nPlease confirm. This cannot be undone.`)) return;
     if (state.demo) {
       state.expenses = state.expenses.filter((expense) => expense.id !== id);
       state.modal = null;

@@ -21,6 +21,11 @@ html {
   background: var(--paper);
 }
 
+html,
+body {
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -124,6 +129,15 @@ button {
 .panel h2 {
   margin: 0 0 14px;
   font-size: 20px;
+}
+
+.recent-panel .section-head {
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.recent-panel .section-head h2 {
+  min-width: 0;
 }
 
 .sidebar {
@@ -689,6 +703,32 @@ button {
   font-weight: 850;
 }
 
+.item-actions .icon-action {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+  color: var(--primary);
+}
+
+.item-actions .icon-action svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.item-actions .danger-icon {
+  background: #fff1ef;
+  color: #9a2219;
+}
+
 .toolbar {
   margin-bottom: 10px;
 }
@@ -770,6 +810,53 @@ button {
   height: 36px;
 }
 
+.compact-expense-item {
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 9px;
+  padding: 9px 0;
+}
+
+.compact-expense-item .avatar {
+  width: 34px;
+  height: 34px;
+}
+
+.compact-expense-item .expense-title-tag {
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+}
+
+.compact-expense-item .item-main {
+  gap: 1px;
+}
+
+.compact-meta {
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compact-meta b {
+  flex: 0 0 auto;
+  color: var(--ink);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.compact-meta i {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-style: normal;
+  text-overflow: ellipsis;
+}
+
 .expense-title-tag {
   display: inline-block;
   width: fit-content;
@@ -836,7 +923,11 @@ button {
 }
 
 .summary-line strong {
+  min-width: 0;
+  overflow: hidden;
   font-variant-numeric: tabular-nums;
+  text-align: right;
+  text-overflow: ellipsis;
 }
 
 .month-reset-note,
@@ -1273,9 +1364,19 @@ button {
 
   .app {
     width: 100%;
-    max-width: 430px;
+    max-width: 100%;
     margin: 0 auto;
     padding: 16px 14px 132px;
+    overflow-x: hidden;
+  }
+
+  .card,
+  .panel {
+    max-width: 100%;
+  }
+
+  .panel {
+    padding: 16px;
   }
 
   .setup-grid,
@@ -1378,6 +1479,28 @@ button {
 
   .item-actions {
     justify-content: flex-start;
+  }
+
+  .expense-item {
+    grid-template-columns: 36px minmax(0, 1fr);
+  }
+
+  .expense-item .item-side {
+    grid-column: 2;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    justify-items: start;
+    gap: 10px;
+  }
+
+  .expense-item .item-actions {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+  }
+
+  .compact-expense-item {
+    grid-template-columns: 34px minmax(0, 1fr);
   }
 
   .mini-bar {
