@@ -47,6 +47,8 @@
     tab: initialTab,
     modal: initialModal,
     sort: "date",
+    expenseSearch: "",
+    rangeMode: "month",
     selectedMonth: initialMonth,
     dateFrom: null,
     dateTo: null,
@@ -1271,43 +1273,89 @@
     const total = list.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
     const members = totalsBy(list, (e) => e.person_id, (e) => personName(e.person_id), (e) => personColor(e.person_id));
     const categories = totalsBy(list, (e) => e.category_id || "none", (e) => categoryName(e.category_id), (e) => categoryColor(e.category_id));
+    const topCategory = categories[0]?.name || "None";
     const hasCustomRange = start !== monthStart(month) || end !== monthEnd(month);
+    const showCustomDates = state.rangeMode === "custom" || hasCustomRange;
     return `
-      <section class="card panel">
-        <div class="section-head">
+      <section class="all-expenses-screen">
+        <header class="all-expenses-header">
+          <button class="icon-only soft-icon" type="button" data-tab="dashboard" aria-label="Back to home">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+          </button>
           <div>
-            <h2>Expenses</h2>
-            <p class="section-subtitle">${list.length} entries · ${money(total)}</p>
+            <h2>All expenses</h2>
+            <p>${escapeHtml(rangeLabel(start, end))}</p>
           </div>
+          <button class="icon-only soft-icon" type="button" aria-label="More options">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8h.01"></path><path d="M12 12h.01"></path><path d="M12 16h.01"></path></svg>
+          </button>
+        </header>
+
+        <div class="expense-period-tabs" role="group" aria-label="Expense date range">
+          <button class="${!hasCustomRange && month === currentMonth() ? "active" : ""}" type="button" data-month-current>This month</button>
+          <button class="${!hasCustomRange && month !== currentMonth() ? "active" : ""}" type="button" data-month-shift="-1">Previous</button>
+          <button class="${showCustomDates ? "active" : ""}" type="button" data-expense-custom>Custom</button>
         </div>
-        <div class="month-switcher">
-          <button class="secondary" data-month-shift="-1" aria-label="Previous month">Prev</button>
-          <select class="input" data-month-select>
-            ${availableMonthKeys().map((key) => `<option value="${key}" ${month === key ? "selected" : ""}>${key === currentMonth() ? "Current - " : ""}${monthLabel(key)}</option>`).join("")}
-          </select>
-        </div>
-        <div class="range-grid">
-          <label class="field">From<input class="input" type="date" data-date-from value="${escapeHtml(start)}"></label>
-          <label class="field">To<input class="input" type="date" data-date-to value="${escapeHtml(end)}"></label>
-        </div>
-        ${hasCustomRange ? `<div class="month-note">Custom range active.</div>` : ""}
-        <section class="expense-analysis-list">
-          ${analysisSection("Who spent how much", members.slice(0, 4))}
-          ${analysisSection("Category spending", categories.slice(0, 4))}
+
+        ${showCustomDates ? `
+          <div class="compact-date-range">
+            <label>From<input type="date" data-date-from value="${escapeHtml(start)}"></label>
+            <label>To<input type="date" data-date-to value="${escapeHtml(end)}"></label>
+          </div>
+        ` : ""}
+
+        <section class="expense-stat-strip" aria-label="Expense summary">
+          ${expenseStatCard("Total spent", money(total))}
+          ${expenseStatCard("Entries", String(list.length))}
+          ${expenseStatCard("Highest cat.", topCategory)}
         </section>
-        <div class="toolbar expense-toolbar">
-          <select class="input" data-sort>
-            <option value="date" ${state.sort === "date" ? "selected" : ""}>Sort by date</option>
-            <option value="person" ${state.sort === "person" ? "selected" : ""}>Sort by person</option>
-            <option value="category" ${state.sort === "category" ? "selected" : ""}>Sort by category</option>
-            <option value="amount" ${state.sort === "amount" ? "selected" : ""}>Sort by amount</option>
-          </select>
+
+        <div class="expense-filter-row">
+          <label class="sort-pill">
+            <span>Sort</span>
+            <select data-sort>
+              <option value="date" ${state.sort === "date" ? "selected" : ""}>Date</option>
+              <option value="category" ${state.sort === "category" ? "selected" : ""}>Category</option>
+              <option value="person" ${state.sort === "person" ? "selected" : ""}>Person</option>
+              <option value="amount" ${state.sort === "amount" ? "selected" : ""}>Amount</option>
+            </select>
+          </label>
+          <label class="expense-search">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m16 16 4 4"></path></svg>
+            <input type="search" data-expense-search value="${escapeHtml(state.expenseSearch || "")}" placeholder="Find">
+          </label>
         </div>
-        <div class="expense-scroll-list">
-          ${list.length ? list.map(expenseRow).join("") : emptyState("No expenses in this range", "Change the dates or add a new expense.")}
+
+        <section class="expense-analysis-list stitch-analysis-list">
+          ${analysisSection("Who spent how much", members.slice(0, 5))}
+          ${analysisSection("By category", categories.slice(0, 5))}
+        </section>
+
+        <div class="transaction-section-title">
+          <span>Recent transactions</span>
+          <b>${list.length}</b>
+        </div>
+        <div class="expense-scroll-list stitch-expense-list">
+          ${list.length ? list.map((expense) => expenseRow(expense, { variant: "ledger" })).join("") : emptyState("No expenses in this range", "Change the dates or add a new expense.")}
         </div>
       </section>
     `;
+  }
+
+  function expenseStatCard(label, value) {
+    return `
+      <article class="expense-stat-card">
+        <span>${escapeHtml(label)}</span>
+        <strong title="${escapeHtml(value)}">${escapeHtml(value)}</strong>
+      </article>
+    `;
+  }
+
+  function rangeLabel(start, end) {
+    const year = String(start || "").slice(0, 4);
+    const endYear = String(end || "").slice(0, 4);
+    if (start === monthStart(selectedMonth()) && end === monthEnd(selectedMonth())) return monthLabel(selectedMonth());
+    return year && year === endYear ? `${shortDate(start)} - ${shortDate(end)}` : `${niceDate(start)} - ${niceDate(end)}`;
   }
 
   function analysisSection(title, rows) {
@@ -1333,7 +1381,17 @@
   }
 
   function sortedExpenses(start = rangeStart(), end = rangeEnd()) {
-    const list = [...expensesForRange(start, end)];
+    const search = String(state.expenseSearch || "").trim().toLocaleLowerCase();
+    const list = expensesForRange(start, end).filter((expense) => {
+      if (!search) return true;
+      return [
+        expense.title,
+        expense.note,
+        categoryName(expense.category_id),
+        personName(expense.person_id),
+        niceDate(expense.spent_on)
+      ].some((value) => String(value || "").toLocaleLowerCase().includes(search));
+    });
     if (state.sort === "person") return list.sort((a, b) => personName(a.person_id).localeCompare(personName(b.person_id)));
     if (state.sort === "category") return list.sort((a, b) => categoryName(a.category_id).localeCompare(categoryName(b.category_id)));
     if (state.sort === "amount") return list.sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0));
@@ -1342,6 +1400,7 @@
 
   function expenseRow(expense, options = {}) {
     const isCompact = Boolean(options.compact);
+    const isLedger = options.variant === "ledger";
     const category = categoryName(expense.category_id);
     const color = categoryColor(expense.category_id);
     const person = personName(expense.person_id);
@@ -1352,6 +1411,25 @@
           <div class="item-main">
             <strong class="expense-title-tag" title="${escapeHtml(expense.title)}">${escapeHtml(expense.title)}</strong>
             <span class="compact-meta"><b>${money(expense.amount)}</b><i>${escapeHtml(category)}</i></span>
+          </div>
+        </article>
+      `;
+    }
+
+    if (isLedger) {
+      return `
+        <article class="item expense-item stitch-expense-item">
+          <span class="avatar" title="${escapeHtml(person)}" aria-label="${escapeHtml(person)}" style="background:${softColor(color)};color:${color}">${personInitial(person)}</span>
+          <div class="item-main">
+            <div class="expense-ledger-top">
+              <strong class="expense-title-tag" title="${escapeHtml(expense.title)}">${escapeHtml(expense.title)}</strong>
+            </div>
+            <span class="expense-meta"><i>${escapeHtml(category)}</i><i>${escapeHtml(person)}</i><i>${activityWhen(expense)}</i></span>
+            ${expense.note ? `<small>${escapeHtml(expense.note)}</small>` : ""}
+          </div>
+          <div class="item-side">
+            <strong class="ledger-amount">${money(expense.amount)}</strong>
+            ${expenseActions(expense)}
           </div>
         </article>
       `;
@@ -2180,39 +2258,55 @@
       state.sort = event.target.value;
       render();
     });
+    document.querySelector("[data-expense-search]")?.addEventListener("change", (event) => {
+      state.expenseSearch = event.target.value;
+      render();
+    });
     document.querySelector("[data-month-select]")?.addEventListener("change", (event) => {
       state.selectedMonth = event.target.value;
       state.dateFrom = monthStart(state.selectedMonth);
       state.dateTo = monthEnd(state.selectedMonth);
+      state.rangeMode = "month";
       render();
     });
     document.querySelector("[data-month-current]")?.addEventListener("click", () => {
       state.selectedMonth = currentMonth();
       state.dateFrom = monthStart(state.selectedMonth);
       state.dateTo = monthEnd(state.selectedMonth);
+      state.rangeMode = "month";
       render();
     });
     document.querySelectorAll("[data-month-shift]").forEach((button) => button.addEventListener("click", () => {
       state.selectedMonth = shiftMonth(selectedMonth(), Number(button.dataset.monthShift || 0));
       state.dateFrom = monthStart(state.selectedMonth);
       state.dateTo = monthEnd(state.selectedMonth);
+      state.rangeMode = "month";
       render();
     }));
+    document.querySelector("[data-expense-custom]")?.addEventListener("click", () => {
+      state.rangeMode = "custom";
+      state.dateFrom = state.dateFrom || monthStart(state.selectedMonth);
+      state.dateTo = state.dateTo || monthEnd(state.selectedMonth);
+      render();
+    });
     document.querySelector("[data-date-from]")?.addEventListener("change", (event) => {
       state.dateFrom = safeDate(event.target.value);
       if (state.dateTo && state.dateFrom > state.dateTo) state.dateTo = state.dateFrom;
       state.selectedMonth = monthKey(state.dateFrom);
+      state.rangeMode = "custom";
       render();
     });
     document.querySelector("[data-date-to]")?.addEventListener("change", (event) => {
       state.dateTo = safeDate(event.target.value);
       if (state.dateFrom && state.dateTo < state.dateFrom) state.dateFrom = state.dateTo;
+      state.rangeMode = "custom";
       render();
     });
     document.querySelectorAll("[data-month-jump]").forEach((button) => button.addEventListener("click", () => {
       state.selectedMonth = button.dataset.monthJump;
       state.dateFrom = monthStart(state.selectedMonth);
       state.dateTo = monthEnd(state.selectedMonth);
+      state.rangeMode = "month";
       state.tab = "expenses";
       render();
     }));
