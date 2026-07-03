@@ -2990,6 +2990,57 @@ button {
   border: 0;
 }
 
+.choice-field {
+  min-width: 0;
+  margin: 0 0 14px;
+  padding: 0;
+  border: 0;
+}
+
+.choice-field legend {
+  margin-bottom: 8px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 950;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.choice-grid label {
+  min-width: 0;
+}
+
+.choice-grid input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.choice-grid span {
+  display: grid;
+  place-items: center;
+  min-height: 50px;
+  border: 1px solid #bcc4bc;
+  border-radius: 8px;
+  background: white;
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 850;
+}
+
+.choice-grid .selected span,
+.choice-grid input:checked + span {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
 .paid-by-options legend {
   margin-bottom: 8px;
   color: var(--ink);

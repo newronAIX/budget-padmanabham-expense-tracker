@@ -4,6 +4,8 @@
   const COLORS = ["#1B4332", "#F5B700", "#EE6055", "#3A7CA5", "#7D5BA6", "#2A9D8F", "#9B5D3A", "#6C757D"];
   const EXPENSE_DEFAULTS = ["Groceries", "Milk", "Medicine", "Education", "Fuel", "Temple", "Dining"];
   const INCOME_DEFAULTS = ["Salary", "Rent", "Pension", "Business"];
+  const INCOME_RECURRING = "RECURRING";
+  const INCOME_ONE_TIME = "ONE_TIME";
   const TERMS_VERSION = "2026-06-21";
   const KEY_CHECK_TEXT = "budget-padmanabham-family-key-v1";
 
@@ -183,7 +185,7 @@
     state.people = saved?.people || [];
     state.categories = saved?.categories || [];
     state.expenses = saved?.expenses || [];
-    state.incomes = saved?.incomes || [];
+    state.incomes = (saved?.incomes || []).map(normalizeIncome);
     state.analyticsSnapshots = saved?.analyticsSnapshots || [];
     state.invites = saved?.invites || [];
     state.joinRequests = saved?.joinRequests || [];
@@ -249,11 +251,11 @@
       created_at: new Date(Date.now() - index * 3600000).toISOString()
     }));
     const incomes = [
-      { id: "i-0", family_id: family.id, title: "Primary Salary", amount: 120000, day_of_month: 1, category_id: "c-inc-0", is_active: true, created_by: "demo-user" },
-      { id: "i-1", family_id: family.id, title: "Rental Income", amount: 45000, day_of_month: 1, category_id: "c-inc-1", is_active: true, created_by: "demo-user" },
-      { id: "i-2", family_id: family.id, title: "Freelance Projects", amount: 15000, day_of_month: 1, category_id: "c-inc-3", is_active: false, created_by: "demo-user" },
-      { id: "i-3", family_id: family.id, title: "FD Dividends", amount: 4500, day_of_month: 1, category_id: "c-inc-2", is_active: true, created_by: "demo-user" }
-    ];
+      { id: "i-0", family_id: family.id, title: "Primary Salary", amount: 120000, day_of_month: 1, category_id: "c-inc-0", income_type: INCOME_RECURRING, received_on: null, is_active: true, created_by: "demo-user" },
+      { id: "i-1", family_id: family.id, title: "Rental Income", amount: 45000, day_of_month: 1, category_id: "c-inc-1", income_type: INCOME_RECURRING, received_on: null, is_active: true, created_by: "demo-user" },
+      { id: "i-2", family_id: family.id, title: "Freelance Projects", amount: 15000, day_of_month: 1, category_id: "c-inc-3", income_type: INCOME_ONE_TIME, received_on: `${currentMonth()}-12`, is_active: true, created_by: "demo-user" },
+      { id: "i-3", family_id: family.id, title: "FD Dividends", amount: 4500, day_of_month: 1, category_id: "c-inc-2", income_type: INCOME_RECURRING, received_on: null, is_active: true, created_by: "demo-user" }
+    ].map(normalizeIncome);
     return {
       family,
       membership: { family_id: family.id, role: "OWNER" },
@@ -536,6 +538,47 @@
     return state.categories.filter((category) => category.scope === "INCOME");
   }
 
+  function isDateKey(value) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
+  }
+
+  function normalizeIncome(income) {
+    const incomeType = income?.income_type === INCOME_ONE_TIME ? INCOME_ONE_TIME : INCOME_RECURRING;
+    const createdDate = String(income?.created_at || "").slice(0, 10);
+    const receivedOn = isDateKey(income?.received_on)
+      ? income.received_on
+      : isDateKey(createdDate) ? createdDate : todayKey();
+    const day = Number(income?.day_of_month || 1);
+    return {
+      ...income,
+      income_type: incomeType,
+      received_on: incomeType === INCOME_ONE_TIME ? receivedOn : null,
+      day_of_month: Math.min(28, Math.max(1, Math.round(Number.isFinite(day) ? day : 1))),
+      is_active: income?.is_active !== false
+    };
+  }
+
+  function isOneTimeIncome(income) {
+    return normalizeIncome(income).income_type === INCOME_ONE_TIME;
+  }
+
+  function incomeReceivedOn(income) {
+    return normalizeIncome(income).received_on || todayKey();
+  }
+
+  function incomeAppliesToMonth(income, key = currentMonth()) {
+    const normalized = normalizeIncome(income);
+    if (normalized.is_active === false || normalized.locked) return false;
+    if (normalized.income_type === INCOME_ONE_TIME) return monthKey(normalized.received_on) === key;
+    return true;
+  }
+
+  function incomeCadenceLabel(income) {
+    const normalized = normalizeIncome(income);
+    if (normalized.income_type === INCOME_ONE_TIME) return `One time on ${shortDate(normalized.received_on)}`;
+    return `Every month on day ${normalized.day_of_month}`;
+  }
+
   function monthExpenses() {
     return expensesForMonth(currentMonth());
   }
@@ -551,6 +594,10 @@
   function availableMonthKeys() {
     const months = new Set([currentMonth(), selectedMonth()]);
     state.expenses.forEach((expense) => months.add(monthKey(expense.spent_on)));
+    state.incomes.forEach((income) => {
+      const normalized = normalizeIncome(income);
+      if (normalized.income_type === INCOME_ONE_TIME) months.add(monthKey(normalized.received_on));
+    });
     return [...months].filter(Boolean).sort((a, b) => b.localeCompare(a));
   }
 
@@ -651,8 +698,8 @@
     return [...map.values()].sort((a, b) => b.total - a.total);
   }
 
-  function incomeForMonth(_key = currentMonth()) {
-    return state.incomes.filter((income) => income.is_active !== false && !income.locked).reduce((sum, income) => sum + Number(income.amount || 0), 0);
+  function incomeForMonth(key = currentMonth()) {
+    return state.incomes.filter((income) => incomeAppliesToMonth(income, key)).reduce((sum, income) => sum + Number(income.amount || 0), 0);
   }
 
   function snapshotPayloadForMonth(key) {
@@ -1501,7 +1548,7 @@
       <section class="metric-grid">
         ${metric("Total balance", money(income - spend), "+ this month")}
         ${metric("Monthly spend", money(spend), `${monthExpenses().length} expenses`)}
-        ${metric("Income", money(income), "Active recurring")}
+        ${metric("Income", money(income), "Active this month")}
         ${metric("Average expense", money(average), "Per entry")}
       </section>
       ${state.insightTab === "overview" ? `
@@ -1700,14 +1747,14 @@
     return `
       <section class="card panel">
         <div class="income-hero">
-          <span>Total Recurring Monthly Income</span>
+          <span>This Month Income</span>
           <strong>${money(monthlyIncome())}</strong>
         </div>
         <div class="section-head">
-          <h2>Recurring Income</h2>
+          <h2>Income</h2>
           <button class="primary compact" data-modal="income">Add income</button>
         </div>
-        ${rows.length ? rows.map(incomeRow).join("") : emptyState("No income yet", "Add salary, rent, pension, or other recurring income.")}
+        ${rows.length ? rows.map(incomeRow).join("") : emptyState("No income yet", "Add salary, rent, pension, bonus, or other income.")}
       </section>
     `;
   }
@@ -1717,22 +1764,24 @@
     const rows = state.incomes;
     const analytics = analyticsForMonth(currentMonth());
     const activeRows = rows.filter((income) => income.is_active !== false && !income.locked);
+    const activeRecurringRows = activeRows.filter((income) => !isOneTimeIncome(income));
+    const cycleLabel = activeRows.some(isOneTimeIncome) && activeRecurringRows.length ? "Mixed" : activeRows.some(isOneTimeIncome) ? "One time" : "Monthly";
     const activePercent = rows.length ? Math.round((activeRows.length / rows.length) * 100) : 0;
     return `
       <section class="mobile-income-hero">
-        <span>Total Recurring Monthly Income</span>
+        <span>This Month Income</span>
         <strong>${money(monthlyIncome())}</strong>
         <div class="income-hero-stats">
           <div><span>Active streams</span><b>${String(activeRows.length).padStart(2, "0")}</b></div>
-          <div><span>Next deposit</span><b>${escapeHtml(nextDepositLabel(activeRows))}</b></div>
+          <div><span>Next deposit</span><b>${escapeHtml(nextDepositLabel(activeRecurringRows))}</b></div>
         </div>
       </section>
       <section class="income-kpi-grid">
         <article class="card"><b>↗</b><strong>${escapeHtml(shortTrendValue(analytics.previous.income_change_percent))}</strong><span>v/s Last Month</span></article>
         <article class="card"><b>◎</b><strong>${activePercent}%</strong><span>Active</span></article>
-        <article class="card"><b>□</b><strong>Monthly</strong><span>Cycle</span></article>
+        <article class="card"><b>□</b><strong>${escapeHtml(cycleLabel)}</strong><span>Cycle</span></article>
       </section>
-      <section class="mobile-list-title"><h2>Recurring Income</h2><button>≡ Filter</button></section>
+      <section class="mobile-list-title"><h2>Income</h2><button class="primary compact" data-modal="income">Add income</button></section>
       <section class="income-card-list">
         ${rows.map(mobileIncomeRow).join("")}
       </section>
@@ -1743,7 +1792,7 @@
     const rows = state.incomes;
     return `
       <section class="mobile-income-hero">
-        <span>Total Recurring Monthly Income</span>
+        <span>This Month Income</span>
         <strong>${money(monthlyIncome())}</strong>
         <div class="income-hero-stats">
           <div><span>Active streams</span><b>${String(rows.filter((income) => income.is_active).length).padStart(2, "0")}</b></div>
@@ -1755,7 +1804,7 @@
         <article class="card"><b>◎</b><strong>100%</strong><span>Verified</span></article>
         <article class="card"><b>□</b><strong>Monthly</strong><span>Cycle</span></article>
       </section>
-      <section class="mobile-list-title"><h2>Recurring Income</h2><button>≡ Filter</button></section>
+      <section class="mobile-list-title"><h2>Income</h2><button class="primary compact" data-modal="income">Add income</button></section>
       <section class="income-card-list">
         ${rows.map(mobileIncomeRow).join("")}
       </section>
@@ -1792,7 +1841,7 @@
         <span class="avatar">${String(income.title).slice(0, 1).toUpperCase()}</span>
         <div class="item-main">
           <strong>${escapeHtml(income.title)}</strong>
-          <span>${escapeHtml(category)} · Monthly</span>
+          <span>${escapeHtml(category)} · ${escapeHtml(incomeCadenceLabel(income))}</span>
         </div>
         <strong class="mobile-income-amount">${money(income.amount)}</strong>
         ${incomeActions(income)}
@@ -1807,7 +1856,7 @@
         <span class="avatar">${String(income.title).slice(0, 1).toUpperCase()}</span>
         <div class="item-main">
           <strong>${escapeHtml(income.title)}</strong>
-          <span>${escapeHtml(category)} · Day ${income.day_of_month} · ${income.is_active ? "Active" : "Paused"}</span>
+          <span>${escapeHtml(category)} · ${escapeHtml(incomeCadenceLabel(income))} · ${income.is_active ? "Active" : "Paused"}</span>
         </div>
         <div class="item-side">
           <strong>${money(income.amount)}</strong>
@@ -2159,12 +2208,40 @@
 
   function incomeForm(id) {
     const income = state.incomes.find((item) => item.id === id);
+    const normalized = normalizeIncome(income);
+    const incomeType = normalized.income_type;
+    const incomeCategories = activeIncomeCategories();
+    const selectedCategoryId = normalized.category_id && incomeCategories.some((category) => category.id === normalized.category_id)
+      ? normalized.category_id
+      : id ? "" : incomeCategories[0]?.id || "";
+    const recurringHidden = incomeType === INCOME_ONE_TIME ? "hidden" : "";
+    const recurringDisabled = incomeType === INCOME_ONE_TIME ? "disabled" : "";
+    const oneTimeHidden = incomeType === INCOME_ONE_TIME ? "" : "hidden";
+    const oneTimeDisabled = incomeType === INCOME_ONE_TIME ? "" : "disabled";
     return `
       <form data-form="income" data-id="${id || ""}">
         <label class="field">Income title<input class="input" name="title" value="${escapeHtml(income?.title || "")}" placeholder="Salary" required></label>
-        <label class="field">Amount<input class="input" name="amount" type="number" min="1" step="1" value="${escapeHtml(income?.amount || "")}" required></label>
-        <label class="field">Category<select class="input" name="category_id">${activeIncomeCategories().map((c) => `<option value="${c.id}" ${income?.category_id === c.id ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select></label>
-        <label class="field">Day of month<input class="input" name="day_of_month" type="number" min="1" max="28" value="${escapeHtml(income?.day_of_month || 1)}"></label>
+        <fieldset class="choice-field income-type-field">
+          <legend>Income type</legend>
+          <div class="choice-grid">
+            <label class="${incomeType === INCOME_RECURRING ? "selected" : ""}">
+              <input type="radio" name="income_type" value="${INCOME_RECURRING}" ${incomeType === INCOME_RECURRING ? "checked" : ""}>
+              <span>Recurring</span>
+            </label>
+            <label class="${incomeType === INCOME_ONE_TIME ? "selected" : ""}">
+              <input type="radio" name="income_type" value="${INCOME_ONE_TIME}" ${incomeType === INCOME_ONE_TIME ? "checked" : ""}>
+              <span>One time</span>
+            </label>
+          </div>
+        </fieldset>
+        <label class="field">Amount<input class="input" name="amount" type="number" inputmode="decimal" min="1" step="1" value="${escapeHtml(income?.amount || "")}" required></label>
+        <label class="field">Income category<select class="input" name="category_id">
+          <option value="">Choose income category</option>
+          ${incomeCategories.map((c) => `<option value="${c.id}" ${selectedCategoryId === c.id ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}
+        </select></label>
+        <label class="field">New income category<input class="input" name="category_name" value="" placeholder="Bonus, freelance, interest"><small>Type a new income category here, or choose an existing one above.</small></label>
+        <label class="field" data-income-recurring ${recurringHidden}>Day of month<input class="input" name="day_of_month" type="number" min="1" max="28" value="${escapeHtml(normalized.day_of_month || 1)}" ${recurringDisabled}></label>
+        <label class="field" data-income-one-time ${oneTimeHidden}>Received on<input class="input" name="received_on" type="date" value="${escapeHtml(normalized.received_on || todayKey())}" ${oneTimeDisabled}></label>
         <label class="check"><input type="checkbox" name="is_active" ${income?.is_active === false ? "" : "checked"}> Active income</label>
         <button class="primary wide" type="submit">Save income</button>
       </form>
@@ -2314,6 +2391,7 @@
       state.scope = button.dataset.scope;
       render();
     }));
+    bindIncomeTypeFields();
 
     bindForm("create-family", createFamily);
     bindForm("join-family", joinFamily);
@@ -2357,6 +2435,30 @@
 
   function bindForm(name, handler) {
     document.querySelector(`[data-form="${name}"]`)?.addEventListener("submit", runForm(handler));
+  }
+
+  function bindIncomeTypeFields() {
+    const form = document.querySelector(`[data-form="income"]`);
+    if (!form) return;
+    const sync = () => syncIncomeTypeFields(form);
+    form.querySelectorAll(`input[name="income_type"]`).forEach((input) => input.addEventListener("change", sync));
+    sync();
+  }
+
+  function syncIncomeTypeFields(form) {
+    const isOneTime = form.querySelector(`input[name="income_type"][value="${INCOME_ONE_TIME}"]`)?.checked;
+    form.querySelectorAll(".choice-grid label").forEach((label) => {
+      const input = label.querySelector("input");
+      if (input?.name === "income_type") label.classList.toggle("selected", input.checked);
+    });
+    form.querySelectorAll("[data-income-recurring]").forEach((field) => {
+      field.hidden = Boolean(isOneTime);
+      field.querySelectorAll("input, select, textarea").forEach((input) => { input.disabled = Boolean(isOneTime); });
+    });
+    form.querySelectorAll("[data-income-one-time]").forEach((field) => {
+      field.hidden = !isOneTime;
+      field.querySelectorAll("input, select, textarea").forEach((input) => { input.disabled = !isOneTime; });
+    });
   }
 
   function formDraftKey(name) {
@@ -2667,19 +2769,19 @@
     const hydrated = [];
     for (const row of rows) {
       if (!row.encrypted_payload) {
-        hydrated.push({ ...row, needsEncryptionMigration: Boolean(state.familyKey) });
+        hydrated.push(normalizeIncome({ ...row, needsEncryptionMigration: Boolean(state.familyKey) }));
         continue;
       }
       if (!state.familyKey) {
-        hydrated.push({ ...row, title: "Locked income", amount: 0, category_id: null, day_of_month: 1, locked: true });
+        hydrated.push(normalizeIncome({ ...row, title: "Locked income", amount: 0, category_id: null, day_of_month: 1, locked: true }));
         state.privacyLocked = true;
         continue;
       }
       try {
         const decrypted = await decryptJson(state.familyKey, row.encrypted_payload);
-        hydrated.push({ ...row, ...decrypted, encrypted: true });
+        hydrated.push(normalizeIncome({ ...row, ...decrypted, encrypted: true }));
       } catch (_) {
-        hydrated.push({ ...row, title: "Locked income", amount: 0, category_id: null, day_of_month: 1, locked: true });
+        hydrated.push(normalizeIncome({ ...row, title: "Locked income", amount: 0, category_id: null, day_of_month: 1, locked: true }));
         state.privacyLocked = true;
       }
     }
@@ -3086,22 +3188,76 @@
     await load();
   }
 
-  async function saveIncome(form) {
-    const id = form.dataset.id;
-    const data = Object.fromEntries(new FormData(form).entries());
+  async function createIncomeCategory(name) {
+    const categoryName = requireText(name, "income category", 80);
+    const existing = findCategoryByName("INCOME", categoryName);
+    if (existing) return existing;
     const payload = {
       family_id: state.family.id,
-      title: requireText(data.title, "income title", 120),
-      amount: positiveMoney(data.amount, "income amount"),
-      day_of_month: boundedNumber(data.day_of_month || 1, "Day of month", 1, 28),
-      category_id: data.category_id || null,
-      is_active: Boolean(data.is_active),
+      name: categoryName,
+      scope: "INCOME",
+      color: COLORS[(activeIncomeCategories().length + 3) % COLORS.length],
+      monthly_limit: 0,
       created_by: state.user.id
     };
 
     if (state.demo) {
-      if (id) state.incomes = state.incomes.map((income) => income.id === id ? { ...income, ...payload } : income);
-      else state.incomes.unshift({ id: crypto.randomUUID(), ...payload });
+      const category = { id: crypto.randomUUID(), ...payload };
+      state.categories.push(category);
+      return category;
+    }
+
+    const encryptedPayload = await encryptedCategoryPayload(categoryPayload(payload));
+    const databasePayload = {
+      family_id: state.family.id,
+      name: `Encrypted category ${crypto.randomUUID().slice(0, 8)}`,
+      scope: "EXPENSE",
+      color: COLORS[0],
+      monthly_limit: 0,
+      created_by: state.user.id,
+      encrypted_payload: encryptedPayload,
+      encryption_version: 1
+    };
+    const { data, error } = await client.from("budget_categories").insert(databasePayload).select().single();
+    if (error) throw error;
+    const category = (await hydrateCategories([data]))[0];
+    state.categories.push(category);
+    return category;
+  }
+
+  async function incomeCategoryIdFromForm(data) {
+    const typedCategory = cleanText(data.category_name);
+    if (typedCategory) return (await createIncomeCategory(typedCategory)).id;
+    const selectedCategoryId = data.category_id || "";
+    if (selectedCategoryId && activeIncomeCategories().some((category) => category.id === selectedCategoryId)) return selectedCategoryId;
+    throw new Error("Choose or create an income category.");
+  }
+
+  async function saveIncome(form) {
+    const id = form.dataset.id;
+    const data = Object.fromEntries(new FormData(form).entries());
+    const existingIncome = id ? state.incomes.find((income) => income.id === id) : null;
+    const incomeType = data.income_type === INCOME_ONE_TIME ? INCOME_ONE_TIME : INCOME_RECURRING;
+    const title = requireText(data.title, "income title", 120);
+    const amount = positiveMoney(data.amount, "income amount");
+    const dayOfMonth = incomeType === INCOME_ONE_TIME ? 1 : boundedNumber(data.day_of_month || existingIncome?.day_of_month || 1, "Day of month", 1, 28);
+    const receivedOn = incomeType === INCOME_ONE_TIME ? safeDate(data.received_on || existingIncome?.received_on || todayKey()) : null;
+    const categoryId = await incomeCategoryIdFromForm(data);
+    const payload = {
+      family_id: state.family.id,
+      title,
+      amount,
+      day_of_month: dayOfMonth,
+      income_type: incomeType,
+      received_on: receivedOn,
+      category_id: categoryId,
+      is_active: Boolean(data.is_active),
+      created_by: existingIncome?.created_by || state.user.id
+    };
+
+    if (state.demo) {
+      if (id) state.incomes = state.incomes.map((income) => income.id === id ? normalizeIncome({ ...income, ...payload }) : income);
+      else state.incomes.unshift(normalizeIncome({ id: crypto.randomUUID(), ...payload }));
       state.modal = null;
       writeDemo();
       render();
@@ -3125,7 +3281,8 @@
       : client.from("budget_incomes").insert(databasePayload);
     const { error } = await query;
     if (error) throw error;
-    queueAnalyticsSnapshot(currentMonth());
+    queueAnalyticsSnapshot(payload.income_type === INCOME_ONE_TIME ? monthKey(payload.received_on) : currentMonth());
+    if (existingIncome && isOneTimeIncome(existingIncome)) queueAnalyticsSnapshot(monthKey(incomeReceivedOn(existingIncome)));
     state.modal = null;
     await load();
   }
@@ -3133,20 +3290,23 @@
   async function toggleIncome(id) {
     const income = state.incomes.find((item) => item.id === id);
     if (!income) return;
+    const normalized = normalizeIncome(income);
     if (state.demo) {
-      state.incomes = state.incomes.map((item) => item.id === id ? { ...item, is_active: !item.is_active } : item);
+      state.incomes = state.incomes.map((item) => item.id === id ? normalizeIncome({ ...item, is_active: !item.is_active }) : item);
       writeDemo();
       render();
       return;
     }
     const payload = {
       family_id: state.family.id,
-      title: income.title,
-      amount: Number(income.amount || 0),
-      day_of_month: Number(income.day_of_month || 1),
-      category_id: income.category_id || null,
-      is_active: !income.is_active,
-      created_by: income.created_by || state.user.id
+      title: normalized.title,
+      amount: Number(normalized.amount || 0),
+      day_of_month: Number(normalized.day_of_month || 1),
+      income_type: normalized.income_type,
+      received_on: normalized.received_on,
+      category_id: normalized.category_id || null,
+      is_active: !normalized.is_active,
+      created_by: normalized.created_by || state.user.id
     };
     const encryptedPayload = await encryptedIncomePayload(payload);
     const { error } = await client.from("budget_incomes").update({
@@ -3159,7 +3319,7 @@
       encryption_version: 1
     }).eq("id", id);
     if (error) throw error;
-    queueAnalyticsSnapshot(currentMonth());
+    queueAnalyticsSnapshot(payload.income_type === INCOME_ONE_TIME ? monthKey(payload.received_on) : currentMonth());
     await load();
   }
 
@@ -3175,7 +3335,7 @@
     }
     const { error } = await client.from("budget_incomes").delete().eq("id", id);
     if (error) throw error;
-    queueAnalyticsSnapshot(currentMonth());
+    queueAnalyticsSnapshot(isOneTimeIncome(income) ? monthKey(incomeReceivedOn(income)) : currentMonth());
     await load();
   }
 
@@ -3402,14 +3562,17 @@
       }
 
       for (const income of state.incomes.filter((item) => item.needsEncryptionMigration)) {
+        const normalized = normalizeIncome(income);
         const payload = {
           family_id: state.family.id,
-          title: income.title,
-          amount: Number(income.amount || 0),
-          day_of_month: Number(income.day_of_month || 1),
-          category_id: income.category_id || null,
-          is_active: income.is_active !== false,
-          created_by: income.created_by || state.user.id
+          title: normalized.title,
+          amount: Number(normalized.amount || 0),
+          day_of_month: Number(normalized.day_of_month || 1),
+          income_type: normalized.income_type,
+          received_on: normalized.received_on,
+          category_id: normalized.category_id || null,
+          is_active: normalized.is_active !== false,
+          created_by: normalized.created_by || state.user.id
         };
         const { error } = await client.from("budget_incomes").update({
           title: "Encrypted income",

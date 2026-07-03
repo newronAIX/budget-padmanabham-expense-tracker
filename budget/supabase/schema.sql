@@ -122,6 +122,8 @@ create table if not exists public.budget_incomes (
   title text not null,
   amount numeric(12,2) not null,
   day_of_month int not null default 1,
+  income_type text not null default 'RECURRING',
+  received_on date,
   category_id uuid references public.budget_categories(id) on delete set null,
   is_active boolean not null default true,
   encrypted_payload text,
@@ -131,7 +133,9 @@ create table if not exists public.budget_incomes (
   updated_at timestamptz not null default now(),
   constraint budget_incomes_title_len check (char_length(trim(title)) between 1 and 120),
   constraint budget_incomes_amount_positive check (amount > 0),
-  constraint budget_incomes_day_range check (day_of_month between 1 and 28)
+  constraint budget_incomes_day_range check (day_of_month between 1 and 28),
+  constraint budget_incomes_type_check check (income_type in ('RECURRING', 'ONE_TIME')),
+  constraint budget_incomes_one_time_date_check check (income_type = 'RECURRING' or received_on is not null)
 );
 
 create table if not exists public.budget_analytics_snapshots (
@@ -241,6 +245,18 @@ begin
   end if;
   if not exists (select 1 from pg_constraint where conname = 'budget_incomes_title_len') then
     alter table public.budget_incomes add constraint budget_incomes_title_len check (char_length(trim(title)) between 1 and 120);
+  end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_incomes' and column_name = 'income_type') then
+    alter table public.budget_incomes add column income_type text not null default 'RECURRING';
+  end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_incomes' and column_name = 'received_on') then
+    alter table public.budget_incomes add column received_on date;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'budget_incomes_type_check') then
+    alter table public.budget_incomes add constraint budget_incomes_type_check check (income_type in ('RECURRING', 'ONE_TIME'));
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'budget_incomes_one_time_date_check') then
+    alter table public.budget_incomes add constraint budget_incomes_one_time_date_check check (income_type = 'RECURRING' or received_on is not null);
   end if;
   if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_join_requests' and column_name = 'encrypted_payload') then
     alter table public.budget_join_requests add column encrypted_payload text;

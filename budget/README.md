@@ -8,7 +8,7 @@ The app keeps daily entry simple for older family members:
 - One clear "Add expense" flow.
 - Expense date defaults to the current date.
 - Invite-code family setup with moderator approval, member removal, invite locking, and invite rotation.
-- Family dashboard, expenses, editing/deleting expenses, recurring income, categories, budget limits, savings goals, insights, invite codes, and sign out.
+- Family dashboard, expenses, editing/deleting expenses, recurring and one-time income, income categories, budget limits, savings goals, insights, invite codes, and sign out.
 - Browser-side family encryption for family names, member display names, categories, monthly plans, expenses, income, and analytics snapshots.
 - Large touch targets and plain labels.
 
