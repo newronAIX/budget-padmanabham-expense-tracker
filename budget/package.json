@@ -5,6 +5,7 @@
   "description": "Mobile-first family expense tracker.",
   "scripts": {
     "check": "node --check app.js",
+    "promo:video": "node scripts/build_promo_video.mjs",
     "start": "python3 -m http.server 5188 --bind 127.0.0.1",
     "test:visual-parity": "python3 scripts/visual_parity.py"
   }

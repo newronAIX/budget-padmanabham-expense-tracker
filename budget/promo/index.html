@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="te">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Budget Padmanabham Promo Renderer</title>
+    <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: #09120e;
+      }
+
+      canvas {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="stage" width="720" height="1280"></canvas>
+    <script>
+      const canvas = document.getElementById("stage");
+      const ctx = canvas.getContext("2d");
+      const W = canvas.width;
+      const H = canvas.height;
+      const TELUGU_FONT = '"Kohinoor Telugu", "Noto Sans Telugu", "Nirmala UI", sans-serif';
+      const LATIN_FONT = '"Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif';
+      const DURATION = 120;
+      const FPS = 30;
+      const PHONE_WIDTH = 350;
+      const PHONE_HEIGHT = PHONE_WIDTH * (844 / 390);
+      const PHONE_X = (W - PHONE_WIDTH) / 2;
+      const PHONE_Y = 108;
+      const CAPTION_Y = 908;
+      const CAPTION_H = 304;
+
+      const scenes = [
+        {
+          key: "problem",
+          start: 0,
+          end: 8,
+          image: "expenses",
+          title: "ప్రతి ఇంట్లో ఒకే సమస్య",
+          sub: "రోజూ ఖర్చు అవుతుంది. కానీ నెలాఖరుకి డబ్బు ఎక్కడికి వెళ్లిందో స్పష్టంగా తెలియదు."
+        },
+        {
+          key: "savings",
+          start: 8,
+          end: 18,
+          image: "dashboard",
+          title: "సేవింగ్స్ ఎందుకు తగ్గుతున్నాయి?",
+          sub: "కిరాణా, స్కూల్, మెడిసిన్, డైనింగ్... చిన్న ఖర్చులు కలిసి పెద్ద మొత్తమవుతాయి."
+        },
+        {
+          key: "free",
+          start: 18,
+          end: 28,
+          image: "dashboard",
+          title: "అందుకే పూర్తిగా free పరిష్కారం",
+          sub: "ఖరీదైన subscription అవసరం లేదు. కుటుంబ బడ్జెట్ కోసం Budget Padmanabham ఉచితం."
+        },
+        {
+          key: "dashboard",
+          start: 28,
+          end: 39,
+          image: "dashboard",
+          title: "మొత్తం నెల లెక్క ఒక చూపులో",
+          sub: "ఆదాయం, ఖర్చులు, సేవింగ్స్, budget status అన్నీ ఒక్క dashboard లో స్పష్టంగా కనిపిస్తాయి."
+        },
+        {
+          key: "expense",
+          start: 39,
+          end: 51,
+          image: "addExpense",
+          title: "ఖర్చు నమోదు చేయడం చాలా సులభం",
+          sub: "పేరు, కేటగిరీ, మొత్తం, తేదీ, నోట్స్. పెద్దవాళ్లకూ అర్థమయ్యే simple flow."
+        },
+        {
+          key: "categories",
+          start: 51,
+          end: 62,
+          image: "categories",
+          title: "కేటగిరీ వారీగా నియంత్రణ",
+          sub: "కిరాణా, ఫ్యూయల్, ఎడ్యుకేషన్ లాంటి categories తో ఎక్కడ ఎక్కువ ఖర్చు అవుతుందో వెంటనే తెలుసుకోండి."
+        },
+        {
+          key: "family",
+          start: 62,
+          end: 74,
+          image: "family",
+          title: "ఇది ఒకరి యాప్ కాదు. కుటుంబ యాప్.",
+          sub: "Invite code తో family members join అవుతారు. Owner approval తో access నియంత్రణ మీ చేతిలోనే ఉంటుంది."
+        },
+        {
+          key: "insights",
+          start: 74,
+          end: 86,
+          image: "insights",
+          title: "ఎవరు ఎంత ఖర్చు చేశారు?",
+          sub: "Member-wise spending, category charts, monthly insights తో కుటుంబ నిర్ణయాలు సులభం అవుతాయి."
+        },
+        {
+          key: "income",
+          start: 86,
+          end: 98,
+          image: "income",
+          title: "ఆదాయం, బడ్జెట్, సేవింగ్స్ లక్ష్యాలు",
+          sub: "Recurring income, monthly budget, savings goals కలిపి నిజంగా ఎంత మిగులుతుందో చూడండి."
+        },
+        {
+          key: "privacy",
+          start: 98,
+          end: 110,
+          image: "family",
+          title: "కుటుంబ డేటాకు privacy",
+          sub: "Family privacy password తో browser-side encryption. మీ ఖర్చుల వివరాలు కుటుంబం బయటకు వెళ్లకుండా జాగ్రత్త."
+        },
+        {
+          key: "outro",
+          start: 110,
+          end: 120,
+          image: "dashboard",
+          title: "బడ్జెట్ పద్మనాభం",
+          sub: "Indian families కోసం free, simple, private family expense tracker."
+        }
+      ];
+
+      const assets = {};
+
+      function clamp(value, min = 0, max = 1) {
+        return Math.max(min, Math.min(max, value));
+      }
+
+      function ease(value) {
+        const t = clamp(value);
+        return t * t * (3 - 2 * t);
+      }
+
+      function roundedRect(x, y, width, height, radius) {
+        const r = Math.min(radius, width / 2, height / 2);
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + width, y, x + width, y + height, r);
+        ctx.arcTo(x + width, y + height, x, y + height, r);
+        ctx.arcTo(x, y + height, x, y, r);
+        ctx.arcTo(x, y, x + width, y, r);
+        ctx.closePath();
+      }
+
+      function fillRounded(x, y, width, height, radius, fill) {
+        roundedRect(x, y, width, height, radius);
+        ctx.fillStyle = fill;
+        ctx.fill();
+      }
+
+      function strokeRounded(x, y, width, height, radius, stroke, lineWidth = 1) {
+        roundedRect(x, y, width, height, radius);
+        ctx.strokeStyle = stroke;
+        ctx.lineWidth = lineWidth;
+        ctx.stroke();
+      }
+
+      function drawBackground(time) {
+        const gradient = ctx.createLinearGradient(0, 0, W, H);
+        gradient.addColorStop(0, "#0d1f17");
+        gradient.addColorStop(0.48, "#162b21");
+        gradient.addColorStop(1, "#f3d177");
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.save();
+        ctx.globalAlpha = 0.08;
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        for (let i = -2; i < 12; i += 1) {
+          const y = 120 + i * 120 + Math.sin(time * 0.7 + i) * 8;
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.bezierCurveTo(200, y - 55, 440, y + 60, W, y - 15);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      function drawPhone(image, sceneProgress, sceneIndex, time) {
+        const scene = scenes[sceneIndex];
+        const isOutro = scene.key === "outro";
+        const width = isOutro ? 338 : PHONE_WIDTH;
+        const height = width * (844 / 390);
+        const baseX = (W - width) / 2;
+        const baseY = isOutro ? 116 : PHONE_Y;
+        const float = Math.sin(time * 1.35) * 6;
+        const enter = ease(sceneProgress / 0.22);
+        const exit = ease((1 - sceneProgress) / 0.18);
+        const scale = (0.95 + enter * 0.05) * (0.994 + Math.sin(time * 0.8) * 0.004);
+        const x = baseX;
+        const y = baseY + (1 - enter) * 60 + (1 - exit) * -35 + float;
+
+        ctx.save();
+        ctx.translate(W / 2, y + height / 2);
+        ctx.scale(scale, scale);
+        ctx.translate(-W / 2, -(y + height / 2));
+
+        ctx.shadowColor = "rgba(0, 0, 0, 0.38)";
+        ctx.shadowBlur = 28;
+        ctx.shadowOffsetY = 18;
+        fillRounded(x - 16, y - 16, width + 32, height + 32, 46, "#111916");
+        ctx.shadowColor = "transparent";
+        fillRounded(x - 7, y - 7, width + 14, height + 14, 35, "#f9f4e7");
+
+        roundedRect(x, y, width, height, 28);
+        ctx.save();
+        ctx.clip();
+        const zoom = 1.02 + sceneProgress * 0.035;
+        const drawW = width * zoom;
+        const drawH = height * zoom;
+        ctx.drawImage(image, x - (drawW - width) / 2, y - (drawH - height) / 2, drawW, drawH);
+        ctx.restore();
+
+        fillRounded(x + width / 2 - 48, y + 10, 96, 16, 10, "#101816");
+        strokeRounded(x - 7, y - 7, width + 14, height + 14, 35, "rgba(255,255,255,0.55)", 2);
+        ctx.restore();
+
+        if (scene.key === "expense") {
+          drawTap(x + width - 62, y + height - 84, sceneProgress);
+        }
+      }
+
+      function drawTap(x, y, progress) {
+        const pulse = Math.sin(progress * Math.PI * 8) * 0.5 + 0.5;
+        ctx.save();
+        ctx.globalAlpha = 0.9;
+        ctx.fillStyle = "#f5b700";
+        ctx.beginPath();
+        ctx.arc(x, y, 15 + pulse * 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 0.28;
+        ctx.strokeStyle = "#f5b700";
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        ctx.arc(x, y, 35 + pulse * 16, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      function wrapText(text, x, y, maxWidth, lineHeight, font, fillStyle, align = "center") {
+        ctx.save();
+        ctx.font = font;
+        ctx.fillStyle = fillStyle;
+        ctx.textAlign = align;
+        ctx.textBaseline = "top";
+        const words = text.split(" ");
+        const lines = [];
+        let line = "";
+        for (const word of words) {
+          const test = line ? `${line} ${word}` : word;
+          if (ctx.measureText(test).width > maxWidth && line) {
+            lines.push(line);
+            line = word;
+          } else {
+            line = test;
+          }
+        }
+        if (line) lines.push(line);
+        lines.forEach((row, index) => ctx.fillText(row, x, y + index * lineHeight));
+        ctx.restore();
+        return lines.length * lineHeight;
+      }
+
+      function drawCaptions(scene, progress) {
+        const enter = ease(progress / 0.25);
+        const exit = ease((1 - progress) / 0.18);
+        const alpha = Math.min(enter, exit);
+        const y = CAPTION_Y + (1 - enter) * 26;
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        fillRounded(42, y, W - 84, CAPTION_H, 30, "rgba(8, 18, 14, 0.9)");
+        strokeRounded(42, y, W - 84, CAPTION_H, 30, "rgba(255,255,255,0.2)", 1);
+        fillRounded(74, y + 24, 168, 38, 19, "rgba(245,183,0,0.16)");
+        ctx.fillStyle = "#f5b700";
+        ctx.font = `800 20px ${LATIN_FONT}`;
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.fillText("Budget Padmanabham", 94, y + 43);
+        const titleHeight = wrapText(scene.title, W / 2, y + 86, W - 132, 45, `800 36px ${TELUGU_FONT}`, "#fff8e5");
+        wrapText(scene.sub, W / 2, y + 104 + titleHeight, W - 142, 34, `600 25px ${TELUGU_FONT}`, "#e6eee8");
+        ctx.restore();
+      }
+
+      function drawBadges(scene, progress) {
+        if (!["problem", "free", "dashboard", "categories", "family", "insights", "income", "privacy"].includes(scene.key)) return;
+        const labels = {
+          problem: ["Forgotten spends", "No shared view", "Low savings"],
+          free: ["No subscription", "Free to use", "Family-first"],
+          dashboard: ["Monthly view", "Savings", "Budget status"],
+          categories: ["Categories", "Limits", "Quick scan"],
+          family: ["Invite code", "Approval", "Shared ledger"],
+          insights: ["Charts", "Members", "Categories"],
+          income: ["Recurring", "Goals", "Limits"],
+          privacy: ["Encrypted", "Password", "Private"]
+        }[scene.key];
+        ctx.save();
+        ctx.globalAlpha = ease(progress / 0.32);
+        labels.forEach((label, index) => {
+          const x = 174 + index * 170;
+          const y = 48 + Math.sin(progress * Math.PI * 2 + index) * 4;
+          fillRounded(x, y, 154, 46, 23, "rgba(255,255,255,0.18)");
+          ctx.fillStyle = "#fff8e5";
+          ctx.font = `700 20px ${LATIN_FONT}`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(label, x + 77, y + 24);
+        });
+        ctx.restore();
+      }
+
+      function drawStoryAccents(scene, progress, time) {
+        const copy = {
+          problem: [
+            ["₹", "చిన్న ఖర్చులు"],
+            ["?", "ఎక్కడ పోయింది?"],
+            ["↓", "సేవింగ్స్ తగ్గాయి"]
+          ],
+          savings: [
+            ["₹", "కిరాణా"],
+            ["₹", "మెడిసిన్"],
+            ["₹", "స్కూల్"]
+          ],
+          free: [
+            ["0", "Monthly fee"],
+            ["✓", "Free app"],
+            ["∞", "Family use"]
+          ],
+          privacy: [
+            ["🔒", "Private"],
+            ["✓", "Encrypted"],
+            ["★", "Family only"]
+          ]
+        }[scene.key];
+        if (!copy) return;
+
+        ctx.save();
+        ctx.globalAlpha = ease(progress / 0.3) * ease((1 - progress) / 0.18);
+        copy.forEach(([icon, label], index) => {
+          const left = index % 2 === 0;
+          const x = left ? 34 : W - 164;
+          const y = 244 + index * 150 + Math.sin(time * 1.2 + index) * 8;
+          fillRounded(x, y, 130, 96, 24, "rgba(255, 255, 255, 0.16)");
+          strokeRounded(x, y, 130, 96, 24, "rgba(255,255,255,0.18)", 1);
+          ctx.fillStyle = "#f5b700";
+          ctx.font = `900 34px ${LATIN_FONT}`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(icon, x + 65, y + 33);
+          wrapText(label, x + 65, y + 58, 108, 22, `700 18px ${TELUGU_FONT}`, "#fff8e5");
+        });
+        ctx.restore();
+      }
+
+      function drawBrandMark(progress) {
+        const alpha = ease(progress / 0.22);
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        fillRounded(44, 24, 92, 92, 30, "#f5b700");
+        ctx.fillStyle = "#102219";
+        ctx.font = `900 56px ${LATIN_FONT}`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("₹", 90, 72);
+        ctx.restore();
+      }
+
+      function drawFrame(time) {
+        const sceneIndex = scenes.findIndex((scene) => time >= scene.start && time < scene.end);
+        const scene = scenes[sceneIndex === -1 ? scenes.length - 1 : sceneIndex];
+        const progress = clamp((time - scene.start) / (scene.end - scene.start));
+        drawBackground(time);
+        drawBrandMark(progress);
+        drawBadges(scene, progress);
+        drawStoryAccents(scene, progress, time);
+        drawPhone(assets[scene.image], progress, scenes.indexOf(scene), time);
+        drawCaptions(scene, progress);
+      }
+
+      function loadImage(src) {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = reject;
+          img.src = src;
+        });
+      }
+
+      async function loadAssets(paths) {
+        for (const [key, src] of Object.entries(paths)) {
+          assets[key] = await loadImage(src);
+        }
+      }
+
+      async function preparePromoAssets(paths) {
+        const missing = Object.keys(paths).some((key) => !assets[key]);
+        if (missing) await loadAssets(paths);
+        return true;
+      }
+
+      function addTone(context, destination, frequency, start, length, gainValue, type = "sine") {
+        const osc = context.createOscillator();
+        const gain = context.createGain();
+        osc.frequency.value = frequency;
+        osc.type = type;
+        gain.gain.setValueAtTime(0.0001, start);
+        gain.gain.exponentialRampToValueAtTime(gainValue, start + 0.04);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + length);
+        osc.connect(gain);
+        gain.connect(destination);
+        osc.start(start);
+        osc.stop(start + length + 0.05);
+      }
+
+      function scheduleMusic(context, destination) {
+        const melody = [261.63, 329.63, 392.0, 493.88, 440.0, 392.0, 329.63, 293.66];
+        const bass = [130.81, 146.83, 164.81, 196.0];
+        const start = context.currentTime + 0.12;
+        for (let beat = 0; beat < DURATION * 2; beat += 1) {
+          const t = start + beat * 0.5;
+          addTone(context, destination, melody[beat % melody.length], t, 0.42, 0.035, "triangle");
+          if (beat % 2 === 0) addTone(context, destination, bass[(beat / 2) % bass.length], t, 0.9, 0.02, "sine");
+          if (beat % 4 === 2) addTone(context, destination, melody[(beat + 3) % melody.length] * 1.5, t + 0.24, 0.18, 0.018, "sine");
+        }
+      }
+
+      async function recordPromoVideo(options) {
+        await loadAssets(options.assets);
+        drawFrame(0);
+
+        const audioContext = new AudioContext();
+        await audioContext.resume();
+        const destination = audioContext.createMediaStreamDestination();
+        scheduleMusic(audioContext, destination);
+
+        const stream = canvas.captureStream(FPS);
+        for (const track of destination.stream.getAudioTracks()) stream.addTrack(track);
+
+        const chunks = [];
+        const mimeTypes = options.mimeTypes || [
+          "video/webm;codecs=vp9,opus",
+          "video/webm;codecs=vp8,opus",
+          "video/webm"
+        ];
+        const mimeType = mimeTypes.find((candidate) => MediaRecorder.isTypeSupported(candidate)) || "";
+        const recorder = new MediaRecorder(stream, {
+          mimeType,
+          videoBitsPerSecond: options.videoBitsPerSecond || 2600000,
+          audioBitsPerSecond: 128000
+        });
+
+        recorder.ondataavailable = (event) => {
+          if (event.data.size) chunks.push(event.data);
+        };
+
+        const done = new Promise((resolve) => {
+          recorder.onstop = async () => {
+            stream.getTracks().forEach((track) => track.stop());
+            await audioContext.close();
+            const blob = new Blob(chunks, { type: mimeType || "video/webm" });
+            resolve(blob);
+          };
+        });
+
+        const start = performance.now();
+        recorder.start(500);
+        await new Promise((resolve) => {
+          function frame() {
+            const elapsed = (performance.now() - start) / 1000;
+            drawFrame(Math.min(elapsed, DURATION - 0.001));
+            if (elapsed >= DURATION) {
+              resolve();
+            } else {
+              requestAnimationFrame(frame);
+            }
+          }
+          requestAnimationFrame(frame);
+        });
+        recorder.stop();
+        return done;
+      }
+
+      async function downloadPromoVideo(options, filename) {
+        const blob = await recordPromoVideo(options);
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename || "budget-padmanabham-promo.webm";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        return {
+          type: blob.type,
+          size: blob.size
+        };
+      }
+
+      async function previewPromoFrame(assetPaths, time) {
+        await preparePromoAssets(assetPaths);
+        drawFrame(time || 0);
+        return true;
+      }
+
+      window.recordPromoVideo = recordPromoVideo;
+      window.downloadPromoVideo = downloadPromoVideo;
+      window.preparePromoAssets = preparePromoAssets;
+      window.previewPromoFrame = previewPromoFrame;
+      window.drawPromoFrame = drawFrame;
+    </script>
+  </body>
+</html>

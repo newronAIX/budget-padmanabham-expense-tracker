@@ -916,6 +916,11 @@ button {
   --field-bg: #fff9e6;
 }
 
+.new-category-field {
+  --field-accent: var(--blue);
+  --field-bg: #f2f8fc;
+}
+
 .date-field {
   --field-accent: #7D5BA6;
   --field-bg: #f7f3fb;
@@ -1099,6 +1104,14 @@ button {
   flex-wrap: nowrap;
 }
 
+.category-item .item-side {
+  justify-items: end;
+}
+
+.category-actions {
+  flex-wrap: nowrap;
+}
+
 .switch-action {
   position: relative;
   width: 34px;
@@ -1211,6 +1224,17 @@ button {
 .analysis-section p {
   margin: 0;
   color: var(--muted);
+}
+
+.analysis-scroll {
+  display: grid;
+}
+
+.scrollable-analysis .analysis-scroll {
+  max-height: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
 }
 
 .analysis-row {
@@ -1546,7 +1570,7 @@ button {
 
 .stitch-expense-list {
   min-width: 0;
-  max-height: min(54vh, 620px);
+  max-height: min(70vh, 720px);
   padding: 0;
   overflow: hidden auto;
   border: 1px solid var(--line);
@@ -2206,6 +2230,62 @@ button {
   color: #674800;
 }
 
+.success-toast {
+  position: fixed;
+  left: 50%;
+  top: 18px;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 48px;
+  min-width: 190px;
+  max-width: calc(100vw - 28px);
+  padding: 0 18px;
+  border: 1px solid rgba(27, 67, 50, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--primary);
+  box-shadow: 0 16px 42px rgba(17, 36, 27, 0.18);
+  pointer-events: none;
+  animation: saved-toast-fade 1800ms ease forwards;
+}
+
+.success-toast span {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: white;
+  font-size: 14px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.success-toast strong {
+  font-size: 15px;
+  font-weight: 950;
+}
+
+@keyframes saved-toast-fade {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -8px) scale(0.98);
+  }
+  12%,
+  72% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -8px) scale(0.98);
+  }
+}
+
 .error {
   background: #fff0ee;
   border: 1px solid #e8b6b0;
@@ -2484,12 +2564,18 @@ button {
   width: 160px;
   height: 160px;
   margin: 0;
-  background: conic-gradient(#c5161d 0 60%, var(--primary) 60% 90%, var(--secondary) 90% 100%);
 }
 
 .legend-list {
   display: grid;
   gap: 14px;
+}
+
+.scrollable-legend {
+  max-height: 178px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
 }
 
 .legend-list div {
@@ -2977,6 +3063,36 @@ button {
   background: white;
 }
 
+.color-edit-field > span {
+  font-weight: 950;
+}
+
+.color-swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.color-swatch-grid button {
+  width: 100%;
+  aspect-ratio: 1;
+  min-height: 34px;
+  border: 2px solid rgba(255, 255, 255, 0.8);
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.14);
+}
+
+.color-swatch-grid button.active {
+  border-color: var(--ink);
+  box-shadow:
+    inset 0 0 0 2px white,
+    0 0 0 2px var(--ink);
+}
+
+.color-input {
+  padding: 6px;
+}
+
 .form-two-col {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3131,9 +3247,17 @@ button {
   transform: translateX(22px);
 }
 
+.recurring-row.stopped {
+  color: var(--muted);
+}
+
+.recurring-row.stopped span {
+  background: #cfd6cf;
+}
+
 .modal-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 10px;
 }
 
@@ -3460,8 +3584,8 @@ button {
   }
 
   .stitch-expense-list {
-    max-height: none;
-    overflow: visible;
+    max-height: min(68vh, 680px);
+    overflow: hidden auto;
   }
 
   .stitch-expense-item {
@@ -3499,7 +3623,7 @@ button {
   }
 
   .expense-scroll-list {
-    padding-bottom: 92px;
+    padding-bottom: 0;
   }
 
   .bottom-nav {
@@ -3512,7 +3636,7 @@ button {
     max-width: 390px;
     margin: 0;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 0;
     padding: 8px 8px max(8px, env(safe-area-inset-bottom));
     background: rgba(249, 249, 244, 0.96);
@@ -3564,6 +3688,11 @@ button {
     font-size: 28px;
     font-weight: 600;
     line-height: 1;
+  }
+
+  .success-toast {
+    top: 12px;
+    width: min(330px, calc(100vw - 24px));
   }
 
   .modal-backdrop {

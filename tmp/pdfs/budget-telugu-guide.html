@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="te">
+<head>
+  <meta charset="utf-8">
+  <title>Budget Padmanabham - Telugu Mobile Guide</title>
+  <style>
+    @font-face {
+      font-family: "Kohinoor Telugu";
+      src: url("file:///System/Library/Fonts/KohinoorTelugu.ttc");
+    }
+
+    @page {
+      size: A4;
+      margin: 12mm;
+    }
+
+    :root {
+      --ink: #1f252b;
+      --muted: #59615b;
+      --green: #174b35;
+      --soft: #eef5ef;
+      --line: #d9e0d7;
+      --gold: #f5b700;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: #f7f8f4;
+      color: var(--ink);
+      font-family: "Kohinoor Telugu", "Telugu Sangam MN", "Noto Sans Telugu", sans-serif;
+      font-size: 17px;
+      line-height: 1.5;
+    }
+
+    .page {
+      min-height: 273mm;
+      page-break-after: always;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 18px;
+    }
+
+    .page:last-child {
+      page-break-after: auto;
+    }
+
+    .cover {
+      justify-content: center;
+      gap: 20px;
+      text-align: center;
+    }
+
+    h1, h2, h3, p {
+      margin: 0;
+    }
+
+    h1 {
+      color: var(--green);
+      font-size: 40px;
+      line-height: 1.2;
+    }
+
+    h2 {
+      color: var(--green);
+      font-size: 26px;
+      line-height: 1.25;
+      margin-bottom: 10px;
+    }
+
+    h3 {
+      color: var(--ink);
+      font-size: 21px;
+      line-height: 1.3;
+      margin-top: 16px;
+      margin-bottom: 6px;
+    }
+
+    .eyebrow {
+      color: var(--muted);
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+
+    .lead {
+      font-size: 23px;
+      color: var(--muted);
+      max-width: 620px;
+      margin: 0 auto;
+    }
+
+    .card {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 18px 20px;
+      box-shadow: 0 8px 24px rgba(23, 75, 53, 0.08);
+    }
+
+    .guide-card {
+      width: 100%;
+    }
+
+    .code-card {
+      background: var(--green);
+      color: #fff;
+      border-radius: 12px;
+      padding: 18px;
+      text-align: center;
+      margin: 16px auto 0;
+      max-width: 520px;
+    }
+
+    .code-card span {
+      display: block;
+      font-size: 16px;
+      opacity: 0.85;
+      margin-bottom: 6px;
+    }
+
+    .code-card strong {
+      display: block;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 34px;
+      letter-spacing: 1px;
+    }
+
+    .url {
+      display: inline-block;
+      color: var(--green);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 15px;
+      overflow-wrap: anywhere;
+      margin-top: 8px;
+    }
+
+    ol {
+      margin: 8px 0 0;
+      padding-left: 26px;
+    }
+
+    li {
+      margin: 7px 0;
+      padding-left: 4px;
+    }
+
+    .note {
+      background: #fff8de;
+      border: 1px solid #f0d06a;
+      border-radius: 10px;
+      color: #654a00;
+      padding: 12px 14px;
+      margin-top: 14px;
+      font-size: 17px;
+    }
+
+    .screen-area {
+      display: flex;
+      justify-content: center;
+      width: 100%;
+      padding-top: 2px;
+    }
+
+    .phone {
+      width: 255px;
+      border-radius: 20px;
+      border: 1px solid #d7ddd4;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.16);
+      overflow: hidden;
+      background: #fff;
+    }
+
+    .phone img {
+      width: 100%;
+      display: block;
+    }
+
+    .step-num {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: var(--gold);
+      color: #191919;
+      display: inline-grid;
+      place-items: center;
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      font-size: 20px;
+      font-weight: 800;
+      margin-bottom: 10px;
+    }
+
+    .mini-form {
+      margin-top: 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px;
+      background: #fbfcfa;
+    }
+
+    .field-label {
+      display: block;
+      color: var(--ink);
+      font-weight: 800;
+      margin-bottom: 6px;
+    }
+
+    .input-box {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 10px 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 18px;
+      color: var(--green);
+      overflow-wrap: anywhere;
+    }
+
+    .button-look {
+      margin-top: 12px;
+      background: var(--green);
+      color: #fff;
+      border-radius: 8px;
+      padding: 12px;
+      text-align: center;
+      font-weight: 800;
+    }
+
+    .footer-tip {
+      margin-top: 18px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .center-card {
+      max-width: 620px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    .small-card {
+      background: var(--soft);
+      border-radius: 10px;
+      padding: 12px;
+      font-size: 16px;
+    }
+
+    .brand-mark {
+      width: 72px;
+      height: 72px;
+      border-radius: 16px;
+      display: grid;
+      place-items: center;
+      background: var(--green);
+      color: #fff;
+      font-size: 42px;
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      margin: 0 auto 16px;
+      font-weight: 800;
+    }
+  </style>
+</head>
+<body>
+  <section class="page cover">
+    <div>
+      <div class="brand-mark">₹</div>
+      <p class="eyebrow">Mobile Web App Guide</p>
+      <h1>బడ్జెట్ పద్మనాభం యాప్ ఉపయోగించే విధానం</h1>
+      <p class="lead">కుటుంబ ఖర్చులు, ఆదాయం, ఎవరు ఖర్చు చేశారు అనే వివరాలు సులభంగా నమోదు చేయడానికి ఈ చిన్న గైడ్.</p>
+      <div class="code-card">
+        <span>మొదటిసారి కుటుంబంలో చేరడానికి ఈ కోడ్ వాడాలి</span>
+        <strong>BUDGET-1R5W518</strong>
+      </div>
+      <p class="url">https://budget-padmanabham.vercel.app</p>
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="card guide-card">
+      <div class="step-num">1</div>
+      <h2>యాప్ ఓపెన్ చేసి Gmail తో లాగిన్ అవ్వండి</h2>
+      <ol>
+        <li>మొబైల్ లో Chrome లేదా Safari ఓపెన్ చేయండి.</li>
+        <li>ఈ లింక్ టైప్ చేయండి లేదా ఓపెన్ చేయండి:<br><span class="url">https://budget-padmanabham.vercel.app</span></li>
+        <li><strong>Continue with Gmail</strong> బటన్ నొక్కండి.</li>
+        <li>మీ Gmail account ఎంచుకుని sign in చేయండి.</li>
+      </ol>
+      <div class="note">Gmail తో login చేస్తే మీ కుటుంబ ఖర్చులు మీ account తో సురక్షితంగా కలుస్తాయి.</div>
+    </div>
+    <div class="screen-area">
+      <div class="phone">
+        <img src="file:///Users/yekanth/Documents/Expense Tracking/tmp/pdfs/01-login.png" alt="Login screen">
+      </div>
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="card center-card">
+      <div class="step-num">2</div>
+      <h2>కుటుంబంలో చేరడానికి కోడ్ పెట్టండి</h2>
+      <p>మొదటిసారి login అయిన తర్వాత <strong>Join family</strong> అనే భాగం కనిపిస్తే, అక్కడ invite code పెట్టాలి.</p>
+      <div class="mini-form">
+        <span class="field-label">Invite code</span>
+        <div class="input-box">BUDGET-1R5W518</div>
+        <span class="field-label" style="margin-top: 12px;">Your display name</span>
+        <div class="input-box">మీ పేరు</div>
+        <div class="button-look">Join with code</div>
+      </div>
+      <ol>
+        <li><strong>Invite code</strong> లో పై కోడ్ పూర్తిగా టైప్ చేయండి.</li>
+        <li><strong>Your display name</strong> లో మీ పేరు పెట్టండి.</li>
+        <li><strong>Join with code</strong> నొక్కండి.</li>
+      </ol>
+      <div class="note">కోడ్ లో అక్షరాలు, సంఖ్యలు, మధ్యలో ఉన్న dash అన్నీ అలాగే ఉండాలి.</div>
+    </div>
+    <div class="card center-card">
+      <h3>గమనిక</h3>
+      <p>ఈ కోడ్ ని కుటుంబ సభ్యులకు మాత్రమే పంపండి. వారు Gmail తో login అయ్యాక ఇదే కోడ్ పెట్టి కుటుంబంలో చేరవచ్చు.</p>
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="card guide-card">
+      <div class="step-num">3</div>
+      <h2>Home స్క్రీన్ లో ఏమి కనిపిస్తుంది?</h2>
+      <ol>
+        <li><strong>Total income</strong> - నెలకు వచ్చే మొత్తం ఆదాయం.</li>
+        <li><strong>Total expenses</strong> - ఈ నెలలో నమోదు చేసిన ఖర్చులు.</li>
+        <li><strong>Savings</strong> - ఆదాయం నుంచి ఖర్చులు తీసిన తర్వాత మిగిలేది.</li>
+        <li>కింద ఉన్న menu ద్వారా Home, Expenses, Insights, Income, Family కి వెళ్లవచ్చు.</li>
+      </ol>
+      <div class="note">రోజూ ఖర్చు పెట్టిన వెంటనే నమోదు చేస్తే లెక్కలు స్పష్టంగా ఉంటాయి.</div>
+    </div>
+    <div class="screen-area">
+      <div class="phone">
+        <img src="file:///Users/yekanth/Documents/Expense Tracking/tmp/pdfs/02-dashboard.png" alt="Dashboard screen">
+      </div>
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="card guide-card">
+      <div class="step-num">4</div>
+      <h2>కొత్త ఖర్చు ఎలా నమోదు చేయాలి?</h2>
+      <ol>
+        <li>కింద మధ్యలో ఉన్న <strong>+</strong> బటన్ నొక్కండి లేదా Expenses లో <strong>Add expense</strong> నొక్కండి.</li>
+        <li><strong>Amount</strong> లో డబ్బు మొత్తం పెట్టండి.</li>
+        <li><strong>What was it for?</strong> లో Milk, medicine, vegetables లాంటి విషయం పెట్టండి.</li>
+        <li><strong>Who spent it?</strong> లో ఎవరి ఖర్చు అనేది ఎంచుకోండి.</li>
+        <li><strong>Category</strong> ఎంచుకోండి.</li>
+        <li><strong>Date</strong> ఈరోజు తేదీగా ఆటోమేటిక్ గా వస్తుంది. తప్పు అయితేనే మార్చండి.</li>
+        <li><strong>Save expense</strong> నొక్కండి.</li>
+      </ol>
+      <div class="note">ఒకరు login అయి ఉన్నా, ఇతరుల ఖర్చులు కూడా “Who spent it?” లో వారి పేరును ఎంచుకుని నమోదు చేయవచ్చు.</div>
+    </div>
+    <div class="screen-area">
+      <div class="phone">
+        <img src="file:///Users/yekanth/Documents/Expense Tracking/tmp/pdfs/03-add-expense.png" alt="Add expense screen">
+      </div>
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="card guide-card">
+      <div class="step-num">5</div>
+      <h2>ఖర్చులు చూడటం, మార్చటం, తొలగించటం</h2>
+      <ol>
+        <li><strong>Expenses</strong> tab ఓపెన్ చేయండి.</li>
+        <li>ప్రతి ఖర్చు పక్కన <strong>Edit</strong> ఉంటే దానితో వివరాలు మార్చవచ్చు.</li>
+        <li><strong>Delete</strong> నొక్కితే ఆ ఖర్చు తొలగించబడుతుంది. అవసరమైతేనే delete చేయండి.</li>
+        <li><strong>Income</strong> tab లో నెలవారీ salary, pension, rent వంటి ఆదాయాలు నమోదు చేయవచ్చు.</li>
+      </ol>
+      <div class="two-col">
+        <div class="small-card"><strong>తేదీ:</strong><br>తేదీ ఆటోమేటిక్ గా ఈరోజుగా వస్తుంది.</div>
+        <div class="small-card"><strong>పేరు:</strong><br>వారి పేరుతో ఖర్చు నమోదు చేయండి.</div>
+      </div>
+    </div>
+    <div class="screen-area">
+      <div class="phone">
+        <img src="file:///Users/yekanth/Documents/Expense Tracking/tmp/pdfs/02-dashboard.png" alt="Home screen">
+      </div>
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="card guide-card">
+      <div class="step-num">6</div>
+      <h2>Family screen మరియు Invite code</h2>
+      <ol>
+        <li><strong>Family</strong> tab లో కుటుంబ సభ్యుల పేర్లు కనిపిస్తాయి.</li>
+        <li><strong>Add person</strong> ద్వారా ఖర్చు నమోదు చేయడానికి కొత్త పేరు చేర్చవచ్చు.</li>
+        <li>కొత్త login user ని కుటుంబంలోకి తీసుకురావాలంటే invite code ఇవ్వాలి.</li>
+        <li>ఈ గైడ్ కోసం వాడాల్సిన code:<br><span class="url">BUDGET-1R5W518</span></li>
+        <li>పని అయిపోయిన తర్వాత అవసరమైతే <strong>Sign out</strong> నొక్కండి.</li>
+      </ol>
+      <div class="footer-tip">సహాయం అవసరమైతే కుటుంబంలో యాప్ చూసుకునే వ్యక్తికి ఈ స్క్రీన్ చూపించండి.</div>
+    </div>
+    <div class="screen-area">
+      <div class="phone">
+        <img src="file:///Users/yekanth/Documents/Expense Tracking/tmp/pdfs/05-family-invite.png" alt="Family invite screen">
+      </div>
+    </div>
+  </section>
+</body>
+</html>

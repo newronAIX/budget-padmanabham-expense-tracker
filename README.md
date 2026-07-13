@@ -1,4 +1,4 @@
-# Budget Padmanabham (Android + Supabase)
+# Budget Padmanabham (Android + Web + Supabase)
 
 A Kotlin + Jetpack Compose Android app starter that implements your requested product features:
 
@@ -21,7 +21,8 @@ A Kotlin + Jetpack Compose Android app starter that implements your requested pr
 - Jetpack Compose (Material 3)
 - Android WorkManager for daily reminders
 - DataStore for local app/session state
-- Ktor client for Supabase Auth/REST API calls
+- Ktor client for Android Supabase Auth/REST API calls
+- Static web app using Supabase Auth/REST API calls
 
 ## Project Structure
 
@@ -31,6 +32,9 @@ A Kotlin + Jetpack Compose Android app starter that implements your requested pr
 - `app/src/main/java/com/familyexpense/tracker/data/ExpenseRepository.kt`
 - `app/src/main/java/com/familyexpense/tracker/data/SupabaseApi.kt`
 - `app/src/main/java/com/familyexpense/tracker/worker/DailyReminderWorker.kt`
+- `web/index.html`
+- `web/app.js`
+- `web/styles.css`
 - `supabase/schema.sql`
 
 ## Supabase Setup
@@ -56,10 +60,42 @@ If you already ran an older schema version, run `supabase/schema.sql` again to a
 
 ## Run
 
+### Android
+
 1. Open the project in Android Studio.
 2. Sync Gradle.
 3. Run on Android device/emulator (API 26+).
 4. Allow notifications when prompted.
+
+### Web
+
+The web app is static and has no build step.
+
+1. Open `web/index.html` in a browser, or serve the folder with any static server.
+2. Sign in or sign up.
+3. Use `Settings` only if you need to change the Supabase URL or anon key.
+
+Optional local config file:
+
+```js
+// web/config.js
+window.BUDGET_PADMANABHAM_CONFIG = {
+  SUPABASE_URL: "https://svgyjfqpgleywjjnqpda.supabase.co",
+  SUPABASE_ANON_KEY: "YOUR_ANON_KEY"
+};
+```
+
+`web/config.js` is gitignored so a local key is not accidentally committed.
+
+## Supabase Troubleshooting
+
+If login or family setup fails, check these first:
+
+1. Re-run `supabase/schema.sql` in the Supabase SQL editor. The app expects `families`, `family_members`, `categories`, `expenses`, `incomes`, `family_invites`, `expense_view`, `income_view`, and their RLS policies.
+2. In Supabase Auth, enable the Email provider.
+3. For testing, disable email confirmation. If email confirmation is enabled, sign-up succeeds but no login session is returned until the email is confirmed.
+4. For Android, rebuild and reinstall after changing `SUPABASE_URL` or `SUPABASE_ANON_KEY`; those values are compiled into `BuildConfig`.
+5. For web, update `Settings` or `web/config.js` with the current anon/publishable key.
 
 ## UX Notes Implemented
 

@@ -6,6 +6,8 @@
   const INCOME_DEFAULTS = ["Salary", "Rent", "Pension", "Business"];
   const INCOME_RECURRING = "RECURRING";
   const INCOME_ONE_TIME = "ONE_TIME";
+  const EXPENSE_RECURRING = "RECURRING";
+  const EXPENSE_ONE_TIME = "ONE_TIME";
   const TERMS_VERSION = "2026-06-21";
   const KEY_CHECK_TEXT = "budget-padmanabham-family-key-v1";
 
@@ -58,6 +60,7 @@
     busy: false,
     checkingSession: hasSupabase && !previewMode,
     error: "",
+    toast: null,
     demo: previewMode,
     preview: previewMode
   };
@@ -70,6 +73,7 @@
   let refreshTimer = null;
   let refreshInterval = null;
   let refreshAfterModal = false;
+  let toastTimer = null;
   const analyticsSnapshotMonths = new Set();
   let privacyMigrationRunning = false;
 
@@ -184,7 +188,7 @@
     state.membership = saved?.membership || (state.family ? { role: "OWNER" } : null);
     state.people = saved?.people || [];
     state.categories = saved?.categories || [];
-    state.expenses = saved?.expenses || [];
+    state.expenses = (saved?.expenses || []).map(normalizeExpense);
     state.incomes = (saved?.incomes || []).map(normalizeIncome);
     state.analyticsSnapshots = saved?.analyticsSnapshots || [];
     state.invites = saved?.invites || [];
@@ -558,6 +562,24 @@
     };
   }
 
+  function normalizeExpense(expense) {
+    const expenseType = expense?.expense_type === EXPENSE_RECURRING || expense?.recurring === true ? EXPENSE_RECURRING : EXPENSE_ONE_TIME;
+    return {
+      ...expense,
+      expense_type: expenseType,
+      is_active: expenseType === EXPENSE_RECURRING ? expense?.is_active !== false : true
+    };
+  }
+
+  function isRecurringExpense(expense) {
+    return normalizeExpense(expense).expense_type === EXPENSE_RECURRING;
+  }
+
+  function isStoppedRecurringExpense(expense) {
+    const normalized = normalizeExpense(expense);
+    return normalized.expense_type === EXPENSE_RECURRING && normalized.is_active === false;
+  }
+
   function isOneTimeIncome(income) {
     return normalizeIncome(income).income_type === INCOME_ONE_TIME;
   }
@@ -867,6 +889,7 @@
       </div>
       ${state.user && state.family ? bottomNav() : ""}
       ${state.modal ? modal() : ""}
+      ${state.toast ? toast() : ""}
     `;
     bind();
     if (!state.modal && refreshAfterModal) {
@@ -1074,6 +1097,7 @@
         ${mobileNavButton("dashboard", "⌂", "Home")}
         ${mobileNavButton("insights", "▤", "Insights")}
         ${mobileNavButton("income", "▣", "Income")}
+        ${mobileNavButton("categories", "◇", "Categories")}
         ${mobileNavButton("family", "☷", "Family")}
       </nav>
       <button class="floating-add" data-modal="expense" aria-label="Add expense">+</button>
@@ -1375,11 +1399,11 @@
 
         <section class="expense-analysis-list stitch-analysis-list">
           ${analysisSection("Who spent how much", members.slice(0, 5))}
-          ${analysisSection("By category", categories.slice(0, 5))}
+          ${analysisSection("By category", categories, { scroll: true })}
         </section>
 
         <div class="transaction-section-title">
-          <span>Recent transactions</span>
+          <span>All expenses</span>
           <b>${list.length}</b>
         </div>
         <div class="expense-scroll-list stitch-expense-list">
@@ -1405,11 +1429,12 @@
     return year && year === endYear ? `${shortDate(start)} - ${shortDate(end)}` : `${niceDate(start)} - ${niceDate(end)}`;
   }
 
-  function analysisSection(title, rows) {
+  function analysisSection(title, rows, options = {}) {
+    const scrollClass = options.scroll ? " scrollable-analysis" : "";
     return `
-      <section class="analysis-section">
+      <section class="analysis-section${scrollClass}">
         <h3>${escapeHtml(title)}</h3>
-        ${rows.length ? analysisRows(rows) : `<p>No spending in this range.</p>`}
+        ${rows.length ? `<div class="analysis-scroll">${analysisRows(rows)}</div>` : `<p>No spending in this range.</p>`}
       </section>
     `;
   }
@@ -1625,9 +1650,9 @@
       <section class="card panel mobile-breakdown-card">
         <h2>Category Breakdown</h2>
         <div class="breakdown-layout">
-          <div class="donut stitch-donut"><span>Total<br>${money(analytics.totals.spend)}</span></div>
-          <div class="legend-list">
-            ${categories.slice(0, 3).map((row) => `<div><i style="background:${row.color}"></i><span>${escapeHtml(row.name)}</span><strong>${Math.round(row.percent || 0)}%</strong></div>`).join("") || `<div><span>No category spend</span><strong>0%</strong></div>`}
+          ${donut(categories, { className: "stitch-donut", label: `Total<br>${money(analytics.totals.spend)}` })}
+          <div class="legend-list scrollable-legend">
+            ${categoryLegendRows(categories)}
           </div>
         </div>
       </section>
@@ -1672,9 +1697,9 @@
       <section class="card panel mobile-breakdown-card">
         <h2>Category Breakdown</h2>
         <div class="breakdown-layout">
-          <div class="donut stitch-donut"><span>Total<br>100%</span></div>
-          <div class="legend-list">
-            ${categories.slice(0, 3).map((row, index) => `<div><i style="background:${row.color}"></i><span>${escapeHtml(row.name)}</span><strong>${index === 0 ? "60%" : index === 1 ? "30%" : "10%"}</strong></div>`).join("")}
+          ${donut(categories, { className: "stitch-donut", label: `Total<br>${money(spend)}` })}
+          <div class="legend-list scrollable-legend">
+            ${categoryLegendRows(categoryRowsWithPercent(categories))}
           </div>
         </div>
       </section>
@@ -1691,16 +1716,28 @@
     `;
   }
 
-  function donut(rows) {
+  function categoryRowsWithPercent(rows) {
+    const total = rows.reduce((sum, row) => sum + Number(row.total || 0), 0);
+    return rows.map((row) => ({ ...row, percent: total ? (Number(row.total || 0) / total) * 100 : 0 }));
+  }
+
+  function categoryLegendRows(rows) {
+    return rows.length
+      ? rows.map((row) => `<div><i style="background:${row.color}"></i><span>${escapeHtml(row.name)}</span><strong>${Math.round(row.percent || 0)}%</strong></div>`).join("")
+      : `<div><span>No category spend</span><strong>0%</strong></div>`;
+  }
+
+  function donut(rows, options = {}) {
     if (!rows.length) return emptyState("No chart yet", "Charts appear after expenses are added.");
     const total = rows.reduce((sum, row) => sum + row.total, 0);
+    if (!total) return emptyState("No chart yet", "Charts appear after expenses are added.");
     let cursor = 0;
     const stops = rows.map((row) => {
       const start = cursor;
       cursor += (row.total / total) * 100;
       return `${row.color} ${start}% ${cursor}%`;
     });
-    return `<div class="donut" style="background:conic-gradient(${stops.join(",")})"><span>Total<br>${money(total)}</span></div>`;
+    return `<div class="donut ${escapeHtml(options.className || "")}" style="background:conic-gradient(${stops.join(",")})"><span>${options.label || `Total<br>${money(total)}`}</span></div>`;
   }
 
   function monthlyHistory() {
@@ -1901,17 +1938,28 @@
     const used = state.expenses.filter((expense) => expense.category_id === category.id).length + state.incomes.filter((income) => income.category_id === category.id).length;
     const limitText = category.scope === "EXPENSE" && Number(category.monthly_limit || 0) > 0 ? ` · Limit ${money(category.monthly_limit)}` : "";
     return `
-      <article class="item">
+      <article class="item category-item">
         <span class="swatch" style="background:${category.color}"></span>
         <div class="item-main">
           <strong>${escapeHtml(category.name)}</strong>
           <span>${category.scope === "EXPENSE" ? "Expense" : "Income"} · ${used} items${escapeHtml(limitText)}</span>
         </div>
-        <div class="item-actions">
-          <button data-edit-category="${category.id}">Rename</button>
-          <button data-delete-category="${category.id}">Delete</button>
-        </div>
+        <div class="item-side">${categoryActions(category)}</div>
       </article>
+    `;
+  }
+
+  function categoryActions(category) {
+    const name = category.name || "category";
+    return `
+      <div class="item-actions category-actions">
+        <button class="icon-action" type="button" data-edit-category="${escapeHtml(category.id)}" aria-label="Edit ${escapeHtml(name)}" title="Edit">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+        </button>
+        <button class="icon-action danger-icon" type="button" data-delete-category="${escapeHtml(category.id)}" aria-label="Delete ${escapeHtml(name)}" title="Delete">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 14h10l1-14"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg>
+        </button>
+      </div>
     `;
   }
 
@@ -2146,7 +2194,7 @@
     const title = {
       expense: id ? "Edit expense" : "Add expense",
       income: id ? "Edit income" : "Add income",
-      category: id ? "Rename category" : "Add category",
+      category: id ? "Edit category" : "Add category",
       person: id ? "Edit person" : "Add person",
       "family-plan": "Edit monthly plan",
       "category-limits": "Category limits"
@@ -2170,18 +2218,38 @@
     `;
   }
 
+  function toast() {
+    return `
+      <div class="success-toast" role="status" aria-live="polite">
+        <span>✓</span>
+        <strong>${escapeHtml(state.toast.message)}</strong>
+      </div>
+    `;
+  }
+
   function expenseForm(id) {
     const expense = state.expenses.find((item) => item.id === id);
+    const normalizedExpense = normalizeExpense(expense);
     const dateValue = expense?.spent_on || todayKey();
     const selectedPersonId = defaultExpensePersonId(expense);
+    const expenseCategories = activeExpenseCategories();
+    const selectedCategoryId = expense?.category_id && expenseCategories.some((category) => category.id === expense.category_id)
+      ? expense.category_id
+      : id ? "" : expenseCategories[0]?.id || "";
+    const recurring = isRecurringExpense(expense);
+    const stoppedRecurring = isStoppedRecurringExpense(expense);
     return `
       <form data-form="expense" data-id="${id || ""}">
         <label class="field title-field">Expense name<input class="input" name="title" value="${escapeHtml(expense?.title || "")}" placeholder="Milk, vegetables, medicine" required></label>
         <label class="field amount-field">Amount (₹)<input class="input amount-input" name="amount" type="number" inputmode="decimal" min="1" step="1" value="${escapeHtml(expense?.amount || "")}" placeholder="0.00" required></label>
         <div class="form-two-col">
           <label class="field date-field">Date<input class="input" name="spent_on" type="date" value="${dateValue}" required></label>
-          <label class="field category-field">Category<select class="input" name="category_id">${activeExpenseCategories().map((c) => `<option value="${c.id}" ${expense?.category_id === c.id ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select></label>
+          <label class="field category-field">Category<select class="input" name="category_id">
+            <option value="">Choose category</option>
+            ${expenseCategories.map((c) => `<option value="${c.id}" ${selectedCategoryId === c.id ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}
+          </select></label>
         </div>
+        <label class="field new-category-field">New category<input class="input" name="category_name" value="" placeholder="School fees, repairs, travel"><small>Optional. This creates and uses the category for this expense.</small></label>
         <fieldset class="paid-by-options">
           <legend>Paid by</legend>
           <div>
@@ -2193,9 +2261,15 @@
             `).join("")}
           </div>
         </fieldset>
-        <label class="recurring-row">Mark as recurring?<input type="checkbox" name="recurring_preview"><span></span></label>
+        ${stoppedRecurring ? `<input type="hidden" name="recurring_preview" value="1">` : ""}
+        <label class="recurring-row ${stoppedRecurring ? "stopped" : ""}">
+          ${stoppedRecurring ? "Recurring stopped" : "Mark as recurring?"}
+          <input type="checkbox" name="recurring_preview" ${recurring ? "checked" : ""} ${stoppedRecurring ? "disabled" : ""}>
+          <span></span>
+        </label>
         <div class="modal-actions">
           ${id ? `<button class="danger" type="button" data-delete-expense="${id}">Delete</button>` : ""}
+          ${id && recurring && normalizedExpense.is_active !== false ? `<button class="secondary" type="button" data-stop-recurring-expense="${id}">Stop recurring</button>` : ""}
           <button class="primary" type="submit">Save expense</button>
         </div>
       </form>
@@ -2250,6 +2324,7 @@
 
   function categoryForm(id) {
     const category = state.categories.find((item) => item.id === id);
+    const selectedColor = category?.color || COLORS[0];
     return `
       <form data-form="category" data-id="${id || ""}">
         <label class="field">Name<input class="input" name="name" value="${escapeHtml(category?.name || "")}" placeholder="Groceries" required></label>
@@ -2258,7 +2333,13 @@
           <option value="INCOME" ${(category?.scope || state.scope) === "INCOME" ? "selected" : ""}>Income</option>
         </select></label>
         <label class="field">Monthly limit<input class="input" name="monthly_limit" type="number" min="0" step="1" value="${escapeHtml(category?.monthly_limit || "")}" placeholder="0"><small>Optional for expense categories.</small></label>
-        <label class="field">Color<input class="input" name="color" type="color" value="${escapeHtml(category?.color || COLORS[0])}"></label>
+        <div class="field color-edit-field">
+          <span>Color</span>
+          <div class="color-swatch-grid" role="group" aria-label="Category color">
+            ${COLORS.map((color) => `<button class="${color.toLowerCase() === selectedColor.toLowerCase() ? "active" : ""}" type="button" data-color-swatch="${escapeHtml(color)}" style="background:${escapeHtml(color)}" aria-label="Use color ${escapeHtml(color)}"></button>`).join("")}
+          </div>
+          <input class="input color-input" name="color" type="color" value="${escapeHtml(selectedColor)}" aria-label="Custom category color">
+        </div>
         <button class="primary wide" type="submit">Save category</button>
       </form>
     `;
@@ -2404,9 +2485,11 @@
     bindForm("privacy-unlock", unlockPrivacy);
     bindForm("privacy-setup", setupPrivacy);
     bindFormDrafts();
+    bindCategoryColorPicker();
 
     document.querySelectorAll("[data-edit-expense]").forEach((button) => button.addEventListener("click", () => openModal("expense", button.dataset.editExpense)));
     document.querySelectorAll("[data-delete-expense]").forEach((button) => button.addEventListener("click", run(() => deleteExpense(button.dataset.deleteExpense))));
+    document.querySelectorAll("[data-stop-recurring-expense]").forEach((button) => button.addEventListener("click", run(() => stopRecurringExpense(button.dataset.stopRecurringExpense))));
     document.querySelectorAll("[data-edit-income]").forEach((button) => button.addEventListener("click", () => openModal("income", button.dataset.editIncome)));
     document.querySelectorAll("[data-delete-income]").forEach((button) => button.addEventListener("click", run(() => deleteIncome(button.dataset.deleteIncome))));
     document.querySelectorAll("[data-toggle-income]").forEach((button) => button.addEventListener("click", run(() => toggleIncome(button.dataset.toggleIncome))));
@@ -2443,6 +2526,25 @@
     const sync = () => syncIncomeTypeFields(form);
     form.querySelectorAll(`input[name="income_type"]`).forEach((input) => input.addEventListener("change", sync));
     sync();
+  }
+
+  function bindCategoryColorPicker() {
+    const form = document.querySelector(`[data-form="category"]`);
+    if (!form) return;
+    const input = form.querySelector(`input[name="color"]`);
+    const syncActive = () => {
+      const selected = String(input?.value || "").toLowerCase();
+      form.querySelectorAll("[data-color-swatch]").forEach((button) => {
+        button.classList.toggle("active", String(button.dataset.colorSwatch || "").toLowerCase() === selected);
+      });
+    };
+    form.querySelectorAll("[data-color-swatch]").forEach((button) => button.addEventListener("click", () => {
+      if (!input) return;
+      input.value = button.dataset.colorSwatch || COLORS[0];
+      syncActive();
+    }));
+    input?.addEventListener("input", syncActive);
+    syncActive();
   }
 
   function syncIncomeTypeFields(form) {
@@ -2746,19 +2848,19 @@
     const hydrated = [];
     for (const row of rows) {
       if (!row.encrypted_payload) {
-        hydrated.push({ ...row, needsEncryptionMigration: Boolean(state.familyKey) });
+        hydrated.push(normalizeExpense({ ...row, needsEncryptionMigration: Boolean(state.familyKey) }));
         continue;
       }
       if (!state.familyKey) {
-        hydrated.push({ ...row, title: "Locked expense", amount: 0, note: "", category_id: null, locked: true });
+        hydrated.push(normalizeExpense({ ...row, title: "Locked expense", amount: 0, note: "", category_id: null, locked: true }));
         state.privacyLocked = true;
         continue;
       }
       try {
         const decrypted = await decryptJson(state.familyKey, row.encrypted_payload);
-        hydrated.push({ ...row, ...decrypted, encrypted: true });
+        hydrated.push(normalizeExpense({ ...row, ...decrypted, encrypted: true }));
       } catch (_) {
-        hydrated.push({ ...row, title: "Locked expense", amount: 0, note: "", category_id: null, locked: true });
+        hydrated.push(normalizeExpense({ ...row, title: "Locked expense", amount: 0, note: "", category_id: null, locked: true }));
         state.privacyLocked = true;
       }
     }
@@ -2851,6 +2953,23 @@
       scope: source.scope || "EXPENSE",
       color: source.color || COLORS[0],
       monthly_limit: Number(source.monthly_limit || 0)
+    };
+  }
+
+  function expensePayload(source) {
+    const normalized = normalizeExpense(source);
+    return {
+      family_id: source.family_id || state.family?.id,
+      title: source.title,
+      amount: Number(source.amount || 0),
+      spent_on: source.spent_on || todayKey(),
+      person_id: source.person_id,
+      category_id: source.category_id || null,
+      note: source.note || null,
+      expense_type: normalized.expense_type,
+      is_active: normalized.expense_type === EXPENSE_RECURRING ? normalized.is_active !== false : true,
+      stopped_at: normalized.expense_type === EXPENSE_RECURRING ? source.stopped_at || null : null,
+      entered_by: source.entered_by || state.user?.id
     };
   }
 
@@ -3126,22 +3245,28 @@
     const id = form.dataset.id;
     const data = Object.fromEntries(new FormData(form).entries());
     const existingExpense = id ? state.expenses.find((expense) => expense.id === id) : null;
-    const payload = {
+    const categoryId = await expenseCategoryIdFromForm(data, existingExpense);
+    const wasStoppedRecurring = isStoppedRecurringExpense(existingExpense);
+    const isRecurring = Object.hasOwn(data, "recurring_preview") || wasStoppedRecurring;
+    const payload = expensePayload({
       family_id: state.family.id,
       title: requireText(data.title, "what it was for", 120),
       amount: positiveMoney(data.amount, "amount"),
       spent_on: safeDate(data.spent_on),
       person_id: data.person_id,
-      category_id: data.category_id || null,
+      category_id: categoryId,
       note: Object.hasOwn(data, "note") ? optionalText(data.note, 500) : existingExpense?.note || null,
+      expense_type: isRecurring ? EXPENSE_RECURRING : EXPENSE_ONE_TIME,
+      is_active: isRecurring ? (wasStoppedRecurring ? false : existingExpense?.is_active !== false) : true,
+      stopped_at: wasStoppedRecurring ? existingExpense?.stopped_at || todayKey() : null,
       entered_by: state.user.id
-    };
+    });
     if (!state.people.some((person) => person.id === payload.person_id)) throw new Error("Please choose a family member.");
 
     if (state.demo) {
-      if (id) state.expenses = state.expenses.map((expense) => expense.id === id ? { ...expense, ...payload } : expense);
-      else state.expenses.unshift({ id: crypto.randomUUID(), ...payload, created_at: new Date().toISOString() });
-      state.modal = null;
+      if (id) state.expenses = state.expenses.map((expense) => expense.id === id ? normalizeExpense({ ...expense, ...payload }) : expense);
+      else state.expenses.unshift(normalizeExpense({ id: crypto.randomUUID(), ...payload, created_at: new Date().toISOString() }));
+      finishExpenseSave(Boolean(id));
       writeDemo();
       render();
       return;
@@ -3166,8 +3291,15 @@
     const { error } = await query;
     if (error) throw error;
     queueAnalyticsSnapshot(monthKey(payload.spent_on));
-    state.modal = null;
+    finishExpenseSave(Boolean(id));
+    render();
     await load();
+  }
+
+  function finishExpenseSave(isEditing = false) {
+    state.modal = null;
+    if (!isEditing) state.tab = "dashboard";
+    flashToast(isEditing ? "Expense updated" : "Expense saved");
   }
 
   async function deleteExpense(id) {
@@ -3188,15 +3320,58 @@
     await load();
   }
 
-  async function createIncomeCategory(name) {
-    const categoryName = requireText(name, "income category", 80);
-    const existing = findCategoryByName("INCOME", categoryName);
+  async function stopRecurringExpense(id) {
+    const expense = state.expenses.find((item) => item.id === id);
+    if (!expense || !isRecurringExpense(expense)) throw new Error("Only recurring expenses can be stopped.");
+    if (isStoppedRecurringExpense(expense)) return;
+    if (!window.confirm(`Stop recurring ${expense.title}? Past entries stay in your records.`)) return;
+
+    const payload = expensePayload({
+      ...expense,
+      expense_type: EXPENSE_RECURRING,
+      is_active: false,
+      stopped_at: todayKey()
+    });
+
+    if (state.demo) {
+      state.expenses = state.expenses.map((item) => item.id === id ? normalizeExpense({ ...item, ...payload }) : item);
+      state.modal = null;
+      flashToast("Recurring expense stopped");
+      writeDemo();
+      render();
+      return;
+    }
+
+    const shellPerson = currentUserPerson()?.id || payload.person_id;
+    const { error } = await client.from("budget_expenses").update({
+      title: "Encrypted expense",
+      amount: 1,
+      spent_on: todayKey(),
+      person_id: shellPerson,
+      category_id: null,
+      note: null,
+      encrypted_payload: await encryptedExpensePayload(payload),
+      encryption_version: 1
+    }).eq("id", id);
+    if (error) throw error;
+    if (payload.spent_on) queueAnalyticsSnapshot(monthKey(payload.spent_on));
+    state.modal = null;
+    flashToast("Recurring expense stopped");
+    render();
+    await load();
+  }
+
+  async function createCustomCategory(scope, name) {
+    const isIncome = scope === "INCOME";
+    const categoryName = requireText(name, isIncome ? "income category" : "expense category", 80);
+    const existing = findCategoryByName(scope, categoryName);
     if (existing) return existing;
+    const categoryCount = state.categories.filter((category) => category.scope === scope).length;
     const payload = {
       family_id: state.family.id,
       name: categoryName,
-      scope: "INCOME",
-      color: COLORS[(activeIncomeCategories().length + 3) % COLORS.length],
+      scope,
+      color: COLORS[(categoryCount + (isIncome ? 3 : 0)) % COLORS.length],
       monthly_limit: 0,
       created_by: state.user.id
     };
@@ -3223,6 +3398,23 @@
     const category = (await hydrateCategories([data]))[0];
     state.categories.push(category);
     return category;
+  }
+
+  async function createIncomeCategory(name) {
+    return createCustomCategory("INCOME", name);
+  }
+
+  async function createExpenseCategory(name) {
+    return createCustomCategory("EXPENSE", name);
+  }
+
+  async function expenseCategoryIdFromForm(data, existingExpense) {
+    const typedCategory = cleanText(data.category_name);
+    if (typedCategory) return (await createExpenseCategory(typedCategory)).id;
+    const selectedCategoryId = data.category_id || "";
+    if (selectedCategoryId && activeExpenseCategories().some((category) => category.id === selectedCategoryId)) return selectedCategoryId;
+    if (existingExpense?.category_id && activeExpenseCategories().some((category) => category.id === existingExpense.category_id)) return existingExpense.category_id;
+    return null;
   }
 
   async function incomeCategoryIdFromForm(data) {
@@ -3537,7 +3729,7 @@
       }
 
       for (const expense of state.expenses.filter((item) => item.needsEncryptionMigration)) {
-        const payload = {
+        const payload = expensePayload({
           family_id: state.family.id,
           title: expense.title,
           amount: Number(expense.amount || 0),
@@ -3545,8 +3737,11 @@
           person_id: expense.person_id,
           category_id: expense.category_id || null,
           note: expense.note || null,
+          expense_type: expense.expense_type,
+          is_active: expense.is_active,
+          stopped_at: expense.stopped_at || null,
           entered_by: expense.entered_by || state.user.id
-        };
+        });
         const shellPerson = currentUserPerson()?.id || expense.person_id;
         const { error } = await client.from("budget_expenses").update({
           title: "Encrypted expense",
@@ -3684,6 +3879,18 @@
       state.error = error.message || "Something went wrong.";
     }
     render();
+  }
+
+  function flashToast(message) {
+    window.clearTimeout(toastTimer);
+    const id = `${Date.now()}-${Math.random()}`;
+    state.toast = { id, message };
+    toastTimer = window.setTimeout(() => {
+      if (state.toast?.id === id) {
+        state.toast = null;
+        render();
+      }
+    }, 1800);
   }
 
   function softColor(hex) {

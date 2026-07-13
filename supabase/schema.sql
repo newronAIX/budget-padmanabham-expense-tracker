@@ -28,7 +28,7 @@ create table if not exists public.family_members (
   created_at timestamptz not null default now(),
   unique (family_id, user_id),
   constraint family_members_role_check check (role in ('OWNER', 'MEMBER'))
-);
+); 
 
 create table if not exists public.categories (
   id uuid primary key default gen_random_uuid(),
