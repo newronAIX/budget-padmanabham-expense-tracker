@@ -9,3 +9,6 @@ local.properties
 # Python bytecode from the test scripts
 __pycache__/
 *.pyc
+
+# Vercel CLI link metadata (per-machine)
+.vercel/
