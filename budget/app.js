@@ -18,6 +18,11 @@
     ? { type: params.get("modal") }
     : null;
   const initialMonth = /^\d{4}-\d{2}$/.test(params.get("month") || "") ? params.get("month") : null;
+  // Visual baselines need a fixed clock, otherwise preview data shifts daily and rolls over
+  // at month boundaries. Only honoured in preview mode so the real app can never be pinned.
+  const frozenToday = previewMode && /^\d{4}-\d{2}-\d{2}$/.test(params.get("today") || "")
+    ? params.get("today")
+    : null;
   const hasSupabase = Boolean(config.SUPABASE_URL && config.SUPABASE_PUBLISHABLE_KEY && window.supabase);
   const client = hasSupabase
     ? window.supabase.createClient(config.SUPABASE_URL, config.SUPABASE_PUBLISHABLE_KEY, {
@@ -72,6 +77,7 @@
   let privacyMigrationRunning = false;
 
   const todayKey = () => {
+    if (frozenToday) return frozenToday;
     const d = new Date();
     d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
     return d.toISOString().slice(0, 10);
@@ -268,17 +274,16 @@
     };
   }
 
+  // Anchored to todayKey() so a frozen preview clock makes seeded demo dates deterministic.
   function daysAgo(days) {
-    const date = new Date();
-    date.setDate(date.getDate() - days);
-    date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+    const date = new Date(`${todayKey()}T00:00:00Z`);
+    date.setUTCDate(date.getUTCDate() - days);
     return date.toISOString().slice(0, 10);
   }
 
   function lastMonthDay(day) {
-    const date = new Date();
-    date.setMonth(date.getMonth() - 1, day);
-    date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+    const date = new Date(`${todayKey()}T00:00:00Z`);
+    date.setUTCMonth(date.getUTCMonth() - 1, day);
     return date.toISOString().slice(0, 10);
   }
 

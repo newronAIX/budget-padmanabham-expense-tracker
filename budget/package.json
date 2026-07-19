@@ -6,6 +6,8 @@
   "scripts": {
     "check": "node --check app.js",
     "start": "python3 -m http.server 5188 --bind 127.0.0.1",
-    "test:visual-parity": "python3 scripts/visual_parity.py"
+    "test:visual-parity": "python3 scripts/visual_parity.py --mode stitch",
+    "test:visual": "python3 scripts/visual_parity.py --mode baseline",
+    "test:visual:update": "python3 scripts/visual_parity.py --update-baseline"
   }
 }
