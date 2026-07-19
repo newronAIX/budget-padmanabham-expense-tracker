@@ -12,7 +12,7 @@
   const params = new URLSearchParams(window.location.search);
   const previewMode = params.get("preview") === "1";
   const visualMode = previewMode && params.get("visual") === "activity";
-  const initialTab = ["dashboard", "expenses", "insights", "income", "categories", "family"].includes(params.get("tab"))
+  const initialTab = ["dashboard", "expenses", "insights", "income", "categories", "family", "goals"].includes(params.get("tab"))
     ? params.get("tab")
     : "dashboard";
   const initialModal = ["expense", "income", "category", "person"].includes(params.get("modal"))
@@ -994,6 +994,7 @@
       ${state.tab === "income" ? incomeScreen() : ""}
       ${state.tab === "categories" ? categoriesScreen() : ""}
       ${state.tab === "family" ? familyScreen() : ""}
+      ${state.tab === "goals" ? goalsScreen() : ""}
     `;
   }
 
@@ -1908,8 +1909,7 @@
             ` : ""}
           </div>
           <p class="muted invite-help">${isOwner ? "Rotate if the old code was shared too widely. Old code stops working." : "You can share the code. Only the family admin can rotate, lock, or unlock joining."}</p>
-          ${!state.preview ? budgetGoalsPanel() : ""}
-          ${!state.preview ? categoryLimitsPanel() : ""}
+          ${goalsSummaryCard()}
           <hr>
           <button class="secondary wide" data-action="replay-tour">Show me around again</button>
           <button class="danger wide" data-action="leave-family">Leave family</button>
@@ -1925,8 +1925,7 @@
     const locked = Boolean(state.family?.invite_locked);
     return `
       <section class="mobile-family-page">
-        ${!state.preview ? budgetGoalsPanel("mobile") : ""}
-        ${!state.preview ? categoryLimitsPanel("mobile") : ""}
+        ${goalsSummaryCard()}
         <h2>Family Members</h2>
         <div class="member-card-list">
           ${state.people.slice(0, 3).map((person) => `
@@ -1961,92 +1960,336 @@
     `;
   }
 
-  function budgetGoalsPanel(mode = "desktop") {
+  /* --------------------------------------------------------------------------
+     Goals screen
+
+     Consolidates the savings goal, the monthly budget and every category limit.
+     These used to live in two panels at the bottom of the invite aside, and
+     going over a limit produced almost no feedback anywhere in the app.
+     -------------------------------------------------------------------------- */
+
+  const GOAL_PILL_TEXT = { ok: "On track", near: "Close to limit", over: "Over" };
+
+  function goalsScreen() {
     const isOwner = state.membership?.role === "OWNER";
-    const analytics = analyticsForMonth(currentMonth());
-    const monthlyBudget = Number(state.family?.monthly_budget || 0);
-    const savingsGoal = Number(state.family?.savings_goal_amount || 0);
-    const budgetPercent = Math.min(100, Math.max(0, Math.round(analytics.totals.budget_used_percent || 0)));
-    const savingsPercent = Math.min(100, Math.max(0, Math.round(analytics.totals.savings_progress_percent || 0)));
-    const overCount = categoryLimitRows(true).filter((row) => row.status === "OVER").length;
+    const data = goalsData();
+
+    if (!data.hasAnything) {
+      return `
+        <section class="goals-screen">
+          ${goalsHeader()}
+          <article class="card goal-empty">
+            <h2>No goals set yet</h2>
+            <p>Set a monthly budget, a savings goal, or a limit on the categories you want to watch. You will see progress here, and a warning before you go over.</p>
+            ${isOwner
+              ? `<button class="primary" data-modal="family-plan">Set your first goal</button>`
+              : `<p class="muted">Ask the family admin to set these up.</p>`}
+          </article>
+        </section>
+      `;
+    }
+
     return `
-      <section class="card budget-goals-card ${mode === "mobile" ? "mobile-budget-goals-card" : ""}">
-        <div class="budget-card-head">
-          <div>
-            <span>Monthly plan</span>
-            <h2>Budget & Goals</h2>
-          </div>
-          ${isOwner ? `<button class="secondary compact" data-modal="family-plan">Edit</button>` : ""}
+      <section class="goals-screen">
+        ${goalsHeader()}
+        ${data.savingsGoal ? savingsGoalHero(data) : ""}
+        ${data.monthlyBudget ? monthlyBudgetCard(data, isOwner) : goalsUnsetCard("monthly budget", isOwner)}
+        ${categoryLimitsCard(data, isOwner)}
+        ${!data.savingsGoal ? goalsUnsetCard("savings goal", isOwner) : ""}
+      </section>
+    `;
+  }
+
+  function goalsHeader() {
+    return `
+      <div class="goals-head">
+        <button class="icon-only soft-icon" type="button" data-tab="family" aria-label="Back to family">‹</button>
+        <div>
+          <h2>Goals</h2>
+          <p>${escapeHtml(monthLabel(currentMonth()))}</p>
         </div>
-        <div class="plan-value-grid">
-          <article>
-            <span>Budget</span>
-            <strong>${money(monthlyBudget)}</strong>
-          </article>
-          <article>
-            <span>Goal</span>
-            <strong>${savingsGoal ? money(savingsGoal) : "Not set"}</strong>
-          </article>
-        </div>
-        <div class="budget-status-list">
-          ${statusMeter("Total budget used", monthlyBudget ? `${budgetPercent}%` : "Not set", budgetPercent, budgetPercent > 100 ? "warn" : "")}
-          ${statusMeter("Savings progress", savingsGoal ? `${savingsPercent}%` : "Not set", savingsGoal ? savingsPercent : 0, "gold")}
-          ${statusMeter("Categories over limit", `${overCount}`, overCount ? 100 : 0, overCount ? "warn" : "")}
+      </div>
+    `;
+  }
+
+  function savingsGoalHero(data) {
+    const percent = Math.round(data.savingsPercent);
+    const remaining = Math.max(0, data.savingsGoal - data.savings);
+    const days = daysLeftInMonth();
+    return `
+      <section class="goal-hero">
+        <div class="goal-ring" style="--goal-percent:${percent}"><b>${percent}%</b></div>
+        <div class="goal-hero-main">
+          <span>Savings goal</span>
+          <strong>${money(data.savings)} of ${money(data.savingsGoal)}</strong>
+          <small>${remaining > 0
+            ? `${money(remaining)} to go, with ${days} ${days === 1 ? "day" : "days"} left this month.`
+            : "Goal reached this month."}</small>
         </div>
       </section>
     `;
   }
 
-  function categoryLimitsPanel(mode = "desktop") {
-    const isOwner = state.membership?.role === "OWNER";
-    const rows = categoryLimitRows(true);
-    const limitCount = rows.filter((row) => row.limit > 0).length;
-    const overCount = rows.filter((row) => row.status === "OVER").length;
-    const spentAgainstLimited = rows.filter((row) => row.limit > 0).reduce((sum, row) => sum + row.spent, 0);
+  function monthlyBudgetCard(data, isOwner) {
+    const percent = Math.round(data.budgetPercent);
+    const state_ = data.budgetState;
+    const remaining = data.monthlyBudget - data.spend;
+    const pace = Math.round(monthProgressPercent());
+    const aheadOfPace = state_ !== "over" && percent > pace + 5;
     return `
-      <section class="card category-limit-panel ${mode === "mobile" ? "mobile-category-limit-panel" : ""}">
-        <div class="limit-summary-row">
+      <article class="card goal-card">
+        <div class="goal-card-head">
           <div>
-            <span>Category limits</span>
-            <strong>${limitCount ? `${limitCount} set` : "None set"}</strong>
-            <small>${overCount ? `${overCount} over limit` : `${money(spentAgainstLimited)} tracked`}</small>
+            <h2>Monthly budget</h2>
+            <p>Everything the family spends this month.</p>
           </div>
-          ${rows.length ? `<button class="${isOwner ? "primary" : "secondary"} compact" data-modal="category-limits">${isOwner ? "Edit limits" : "View limits"}</button>` : ""}
+          <span class="goal-pill ${state_}">${GOAL_PILL_TEXT[state_] || "On track"}</span>
         </div>
-      </section>
-    `;
-  }
-
-  function statusMeter(label, value, percent, tone = "") {
-    const width = Number(percent || 0) <= 0 ? 0 : Math.min(100, Math.max(4, Number(percent || 0)));
-    return `
-      <article class="budget-meter ${tone}">
-        <div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>
-        <i><b style="width:${width}%"></b></i>
+        <div class="goal-amounts">
+          <strong>${money(data.spend)}</strong>
+          <span>of ${money(data.monthlyBudget)}</span>
+        </div>
+        <div class="goal-track ${state_}">
+          <i style="width:${Math.min(100, Math.max(2, percent))}%"></i>
+          ${state_ === "over" ? "" : `<span class="goal-pace" style="left:${pace}%"></span>`}
+        </div>
+        <div class="goal-foot">
+          <span>${percent}% used${aheadOfPace ? ", ahead of pace" : ""}</span>
+          ${remaining >= 0
+            ? `<span><b>${money(remaining)}</b> left</span>`
+            : `<span class="over-text">${money(Math.abs(remaining))} over</span>`}
+        </div>
+        ${isOwner ? `<div class="goal-card-actions"><button class="secondary compact" data-modal="family-plan">Edit budget and goal</button></div>` : ""}
       </article>
     `;
   }
 
+  function categoryLimitsCard(data, isOwner) {
+    return `
+      <article class="card goal-card">
+        <div class="goal-card-head">
+          <div>
+            <h2>Category limits</h2>
+            <p>${data.tracked.length ? "Sorted by how much attention they need." : "Set a limit on the categories you want to watch."}</p>
+          </div>
+          ${data.tracked.length || data.untracked.length
+            ? `<button class="secondary compact" data-modal="category-limits">${isOwner ? "Edit" : "View"}</button>`
+            : ""}
+        </div>
+        ${data.tracked.length ? `
+          <div class="goal-limit-list">
+            ${data.tracked.map(goalLimitRow).join("")}
+          </div>
+        ` : `<p class="muted">No category has a limit yet.</p>`}
+        ${data.untracked.length ? `
+          <div class="goal-untracked">
+            <p>No limit set yet — these are not being tracked:</p>
+            <div class="goal-untracked-chips">
+              ${data.untracked.map((row) => `<span class="goal-untracked-chip">${escapeHtml(row.name)}${row.spent ? ` · ${money(row.spent)}` : ""}</span>`).join("")}
+            </div>
+          </div>
+        ` : ""}
+      </article>
+    `;
+  }
+
+  function goalLimitRow(row) {
+    const percent = Math.round(row.used);
+    const over = row.spent - row.limit;
+    return `
+      <div class="goal-limit-row">
+        <div class="goal-limit-name">
+          <i class="goal-dot" style="background:${escapeHtml(row.color || COLORS[0])}"></i>
+          <strong title="${escapeHtml(row.name)}">${escapeHtml(row.name)}</strong>
+        </div>
+        <div class="goal-limit-figure">
+          <b>${money(row.spent)}</b>
+          ${row.state === "over"
+            ? `<span class="over-text">${money(over)} over ${money(row.limit)}</span>`
+            : `<span>of ${money(row.limit)} · ${percent}%</span>`}
+        </div>
+        <div class="goal-track ${row.state}">
+          <i style="width:${Math.min(100, Math.max(2, percent))}%"></i>
+        </div>
+      </div>
+    `;
+  }
+
+  function goalsUnsetCard(what, isOwner) {
+    return `
+      <article class="card goal-card goal-card-unset">
+        <div class="goal-card-head">
+          <div>
+            <h2>No ${what} yet</h2>
+            <p>${what === "monthly budget"
+              ? "Set one and this screen will track how much of it you have used."
+              : "Set one and this screen will track how close you are."}</p>
+          </div>
+          ${isOwner ? `<button class="secondary compact" data-modal="family-plan">Set</button>` : ""}
+        </div>
+      </article>
+    `;
+  }
+
+  /* Warns while an expense is being entered -- the only moment where knowing you
+     are near a limit can still change the decision. It informs and never blocks:
+     saving always works. Nothing read a limit on this path before, so you only
+     discovered an overspend by navigating elsewhere afterwards. */
+  function updateLimitWarning(form) {
+    const slot = form?.querySelector("[data-limit-warning]");
+    if (!slot) return;
+    const categoryId = form.querySelector("[name='category_id']")?.value;
+    const amount = Number(form.querySelector("[name='amount']")?.value || 0);
+    const editingId = form.dataset.id || null;
+    const category = state.categories.find((item) => item.id === categoryId);
+    const limit = Number(category?.monthly_limit || 0);
+
+    if (!category || limit <= 0 || !Number.isFinite(amount) || amount <= 0) {
+      slot.hidden = true;
+      slot.innerHTML = "";
+      return;
+    }
+
+    // Exclude the row being edited, or editing it would count twice.
+    const alreadySpent = monthExpenses()
+      .filter((item) => item.category_id === categoryId && item.id !== editingId)
+      .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    const projected = alreadySpent + amount;
+    const status = limitStatus(projected, limit);
+
+    if (status === "ok") {
+      slot.hidden = true;
+      slot.innerHTML = "";
+      return;
+    }
+
+    const name = escapeHtml(category.name);
+    slot.hidden = false;
+    slot.className = `goal-warning ${status}`;
+    slot.innerHTML = status === "over"
+      ? `<span aria-hidden="true">⚠</span><div>This puts ${name} <b>${money(projected - limit)} over</b> its ${money(limit)} limit.</div>`
+      : `<span aria-hidden="true">⚠</span><div>${name} would be at <b>${Math.round(limitPercent(projected, limit))}%</b> of its ${money(limit)} limit, leaving ${money(limit - projected)}.</div>`;
+  }
+
+  // Compact entry point for the Family tab. Replaces the two panels that used to
+  // sit at the bottom of the invite aside.
+  function goalsSummaryCard() {
+    const data = goalsData();
+    const state_ = data.overCount ? "over" : data.nearCount ? "near" : data.budgetState === "none" ? "ok" : data.budgetState;
+    const detail = !data.hasAnything
+      ? "Nothing set up yet"
+      : data.overCount
+      ? `${data.overCount} ${data.overCount === 1 ? "category is" : "categories are"} over limit`
+      : data.nearCount
+      ? `${data.nearCount} close to limit`
+      : data.monthlyBudget
+      ? `${Math.round(data.budgetPercent)}% of the monthly budget used`
+      : "Savings goal on track";
+    return `
+      <button class="card goal-summary-card" type="button" data-tab="goals">
+        <div>
+          <span>Goals</span>
+          <strong>${escapeHtml(detail)}</strong>
+        </div>
+        <span class="goal-pill ${state_}">${data.hasAnything ? (GOAL_PILL_TEXT[state_] || "On track") : "Set up"}</span>
+      </button>
+    `;
+  }
+
+  /* --------------------------------------------------------------------------
+     Limit status: ONE definition, used everywhere.
+
+     Previously the thresholds disagreed between call sites. The dashboard bar
+     turned red at >= 100 while every status label used a strict >, so spending
+     exactly your budget showed a red bar and a green "Within monthly budget"
+     card at the same time. And the 80% "approaching" tier existed in exactly one
+     place, so everywhere else you went from fine to over with no warning.
+     -------------------------------------------------------------------------- */
+  const LIMIT_NEAR_PERCENT = 80;
+
+  function limitStatus(spent, limit) {
+    if (!limit || limit <= 0) return "none";
+    const percent = (Number(spent) / Number(limit)) * 100;
+    if (percent >= 100) return "over";
+    if (percent >= LIMIT_NEAR_PERCENT) return "near";
+    return "ok";
+  }
+
+  function limitPercent(spent, limit) {
+    if (!limit || limit <= 0) return 0;
+    return (Number(spent) / Number(limit)) * 100;
+  }
+
+  // How far through the month we are, for the pace marker. This is what turns
+  // "56% used" into "56% used, and it is only the 12th".
+  function monthProgressPercent() {
+    const today = todayKey();
+    const day = Number(today.slice(8, 10));
+    const daysInMonth = new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 0)).getUTCDate();
+    return Math.min(100, (day / daysInMonth) * 100);
+  }
+
+  function daysLeftInMonth() {
+    const today = todayKey();
+    const day = Number(today.slice(8, 10));
+    const daysInMonth = new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 0)).getUTCDate();
+    return Math.max(0, daysInMonth - day);
+  }
+
+  function spentByCategory() {
+    return new Map(
+      totalsBy(monthExpenses(), (e) => e.category_id || "none", (e) => categoryName(e.category_id), (e) => categoryColor(e.category_id))
+        .map((row) => [row.key, row])
+    );
+  }
+
   function categoryLimitRows(all = false) {
-    const spendRows = new Map(totalsBy(monthExpenses(), (e) => e.category_id || "none", (e) => categoryName(e.category_id), (e) => categoryColor(e.category_id)).map((row) => [row.key, row]));
+    const spendRows = spentByCategory();
     const rows = activeExpenseCategories().map((category) => {
       const spent = Number(spendRows.get(category.id)?.total || 0);
       const limit = Number(category.monthly_limit || 0);
-      const used = limit ? (spent / limit) * 100 : 0;
       return {
         id: category.id,
         name: category.name,
         color: category.color,
         limit,
         spent,
-        used,
-        status: limit && spent > limit ? "OVER" : "OK"
+        used: limitPercent(spent, limit),
+        state: limitStatus(spent, limit),
+        // Retained for existing call sites that test for the string "OVER".
+        status: limitStatus(spent, limit) === "over" ? "OVER" : "OK"
       };
     }).sort((a, b) => {
-      const overDiff = (b.status === "OVER" ? 1 : 0) - (a.status === "OVER" ? 1 : 0);
-      return overDiff || b.used - a.used || b.spent - a.spent || a.name.localeCompare(b.name);
+      const rank = { over: 0, near: 1, ok: 2, none: 3 };
+      return rank[a.state] - rank[b.state] || b.used - a.used || b.spent - a.spent || a.name.localeCompare(b.name);
     });
     return all ? rows : rows.slice(0, 3);
+  }
+
+  // Everything the Goals screen needs, computed once.
+  function goalsData() {
+    const analytics = analyticsForMonth(currentMonth());
+    const monthlyBudget = Number(state.family?.monthly_budget || 0);
+    const savingsGoal = Number(state.family?.savings_goal_amount || 0);
+    const spend = analytics.totals.spend;
+    const savings = Math.max(0, analytics.totals.savings);
+    const rows = categoryLimitRows(true);
+    const tracked = rows.filter((row) => row.limit > 0);
+    return {
+      analytics,
+      monthlyBudget,
+      savingsGoal,
+      spend,
+      savings,
+      savingsPercent: savingsGoal ? Math.min(100, (savings / savingsGoal) * 100) : 0,
+      budgetPercent: limitPercent(spend, monthlyBudget),
+      budgetState: limitStatus(spend, monthlyBudget),
+      tracked,
+      untracked: rows.filter((row) => row.limit <= 0),
+      overCount: tracked.filter((row) => row.state === "over").length,
+      nearCount: tracked.filter((row) => row.state === "near").length,
+      hasAnything: Boolean(monthlyBudget || savingsGoal || tracked.length)
+    };
   }
 
   function miniBars(rows) {
@@ -2100,10 +2343,14 @@
     const selectedPersonId = defaultExpensePersonId(expense);
     return `
       <form data-form="expense" data-id="${id || ""}">
+        <!-- Filled in by updateLimitWarning() on input. Updated in place rather
+             than through render(), which rebuilds the DOM and would drop focus
+             out of the field being typed into. -->
+        <div class="goal-warning" data-limit-warning hidden></div>
         <label class="field title-field">Expense name<input class="input" name="title" value="${escapeHtml(expense?.title || "")}" placeholder="Milk, vegetables, medicine" required></label>
         <label class="field amount-field">Amount (₹)<input class="input amount-input" name="amount" type="number" inputmode="decimal" min="1" step="1" value="${escapeHtml(expense?.amount || "")}" placeholder="0.00" required></label>
         <div class="form-two-col">
-          <label class="field date-field">Date<input class="input" name="spent_on" type="date" value="${dateValue}" required></label>
+          <label class="field date-field">Date<input class="input" name="spent_on" type="date" value="${escapeHtml(dateValue)}" required></label>
           <label class="field category-field">Category<select class="input" name="category_id">${activeExpenseCategories().map((c) => `<option value="${c.id}" ${expense?.category_id === c.id ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select></label>
         </div>
         <fieldset class="paid-by-options">
@@ -2315,6 +2562,15 @@
     document.querySelectorAll("[data-action='leave-family']").forEach((button) => button.addEventListener("click", run(leaveFamily)));
     document.querySelectorAll("[data-copy-invite]").forEach((button) => button.addEventListener("click", run(copyInviteCode)));
     document.querySelectorAll("[data-action='replay-tour']").forEach((button) => button.addEventListener("click", () => startTour()));
+
+    // Live budget warning on the expense form. Bound to input/change and updated
+    // in place -- calling render() here would rebuild the DOM mid-keystroke.
+    const expenseFormEl = document.querySelector("[data-form='expense']");
+    if (expenseFormEl) {
+      updateLimitWarning(expenseFormEl);
+      expenseFormEl.querySelector("[name='amount']")?.addEventListener("input", () => updateLimitWarning(expenseFormEl));
+      expenseFormEl.querySelector("[name='category_id']")?.addEventListener("change", () => updateLimitWarning(expenseFormEl));
+    }
     document.querySelectorAll("[data-remove-member]").forEach((button) => button.addEventListener("click", run(() => removeFamilyMember(button.dataset.removeMember, button.dataset.memberName))));
     document.querySelectorAll("[data-insight-tab]").forEach((button) => button.addEventListener("click", () => {
       state.insightTab = button.dataset.insightTab;

@@ -333,6 +333,114 @@ ${radiusTokens.map((t) => `      <div style="width:76px;height:76px;background:v
     ),
   }),
 
+  "components/goals.html": page({
+    group: "Goals",
+    title: "Goals",
+    subtitle:
+      "One screen for the savings goal, the monthly budget and every category limit. Previously these were split across two panels buried at the bottom of the invite aside, and exceeding a limit produced almost no visible feedback: the budget meter's warn state was unreachable dead code, nothing warned at the moment of entry, and the Expenses screen showed no limit state at all.",
+    body: section(
+      "Savings goal",
+      `    <section class="goal-hero">
+      <div class="goal-ring" style="--goal-percent: 70"><b>70%</b></div>
+      <div class="goal-hero-main">
+        <span>Savings goal</span>
+        <strong>₹42,000 of ₹60,000</strong>
+        <small>₹18,000 to go, with 12 days left this month.</small>
+      </div>
+    </section>`,
+      "Progress is capped at 100% and negative savings floor to zero, so the ring can never show a nonsense value in a month that ran a deficit."
+    ) + "\n" + section(
+      "Monthly budget — the three states",
+      `    <div class="ds-stack" style="max-width:560px">
+      <article class="card goal-card">
+        <div class="goal-card-head">
+          <div><h2>Monthly budget</h2><p>Everything the family spends this month.</p></div>
+          <span class="goal-pill ok">On track</span>
+        </div>
+        <div class="goal-amounts"><strong>₹84,320</strong><span>of ₹1,50,000</span></div>
+        <div class="goal-track"><i style="width:56%"></i><span class="goal-pace" style="left:61%"></span></div>
+        <div class="goal-foot"><span>56% used</span><span><b>₹65,680</b> left</span></div>
+      </article>
+
+      <article class="card goal-card">
+        <div class="goal-card-head">
+          <div><h2>Monthly budget</h2><p>Everything the family spends this month.</p></div>
+          <span class="goal-pill near">Close to limit</span>
+        </div>
+        <div class="goal-amounts"><strong>₹1,32,400</strong><span>of ₹1,50,000</span></div>
+        <div class="goal-track near"><i style="width:88%"></i><span class="goal-pace" style="left:61%"></span></div>
+        <div class="goal-foot"><span>88% used, ahead of pace</span><span><b>₹17,600</b> left</span></div>
+      </article>
+
+      <article class="card goal-card">
+        <div class="goal-card-head">
+          <div><h2>Monthly budget</h2><p>Everything the family spends this month.</p></div>
+          <span class="goal-pill over">Over</span>
+        </div>
+        <div class="goal-amounts"><strong>₹1,73,900</strong><span>of ₹1,50,000</span></div>
+        <div class="goal-track over"><i style="width:100%"></i></div>
+        <div class="goal-foot"><span>116% used</span><span class="over-text">₹23,900 over</span></div>
+      </article>
+    </div>`,
+      "The thin vertical marker is <em>pace</em>: where spending should be given how much of the month has passed. It is what turns “56% used” into “56% used, and it is only the 18th”. It is hidden once over, where it no longer helps."
+    ) + "\n" + section(
+      "Category limits",
+      `    <article class="card goal-card" style="max-width:560px">
+      <div class="goal-card-head">
+        <div><h2>Category limits</h2><p>Sorted by how much attention they need.</p></div>
+        <button class="secondary compact" type="button">Edit</button>
+      </div>
+      <div class="goal-limit-list">
+        <div class="goal-limit-row">
+          <div class="goal-limit-name"><i class="goal-dot" style="background:var(--ref-cat-3)"></i><strong>Dining</strong></div>
+          <div class="goal-limit-figure"><b>₹9,400</b><span class="over-text">₹2,400 over ₹7,000</span></div>
+          <div class="goal-track over"><i style="width:100%"></i></div>
+        </div>
+        <div class="goal-limit-row">
+          <div class="goal-limit-name"><i class="goal-dot" style="background:var(--ref-cat-2)"></i><strong>Fuel</strong></div>
+          <div class="goal-limit-figure"><b>₹4,600</b><span>of ₹5,000 · 92%</span></div>
+          <div class="goal-track near"><i style="width:92%"></i></div>
+        </div>
+        <div class="goal-limit-row">
+          <div class="goal-limit-name"><i class="goal-dot" style="background:var(--ref-cat-1)"></i><strong>Groceries</strong></div>
+          <div class="goal-limit-figure"><b>₹18,200</b><span>of ₹30,000 · 61%</span></div>
+          <div class="goal-track"><i style="width:61%"></i></div>
+        </div>
+      </div>
+      <div class="goal-untracked">
+        <p>No limit set yet — these are not being tracked:</p>
+        <div class="goal-untracked-chips">
+          <span class="goal-untracked-chip">Medicine · ₹3,100</span>
+          <span class="goal-untracked-chip">Education · ₹12,000</span>
+          <span class="goal-untracked-chip">Temple · ₹900</span>
+        </div>
+      </div>
+    </article>`,
+      "Untracked categories are separated out rather than shown as green “within limit” cards, which is what happens today — a category with no limit currently renders identically to one comfortably under budget."
+    ) + "\n" + section(
+      "Warning at the moment of entry",
+      `    <div class="ds-stack" style="max-width:420px">
+      <div class="ds-box" style="border-radius:var(--radius-lg)">
+        <div class="goal-warning near"><span>⚠</span><div>Dining is at <b>92%</b> of its ₹7,000 limit. This expense would leave ₹560.</div></div>
+        <label class="field">Amount<input class="input" value="4,600"></label>
+      </div>
+      <div class="ds-box" style="border-radius:var(--radius-lg)">
+        <div class="goal-warning over"><span>⚠</span><div>This puts Dining <b>₹2,400 over</b> its ₹7,000 limit.</div></div>
+        <label class="field">Amount<input class="input" value="9,400"></label>
+      </div>
+    </div>`,
+      "The single highest-value placement: the only moment where knowing you are near a limit can still change the outcome. Today the add-expense form never reads a limit at all, so you only discover an overspend by navigating elsewhere afterwards."
+    ) + "\n" + section(
+      "Nothing set yet",
+      `    <article class="card goal-empty" style="max-width:560px">
+      <h2>No goals set yet</h2>
+      <p>Set a monthly budget, a savings goal, or a limit on the categories you want to watch. You will see progress here, and a warning before you go over.</p>
+      <button class="primary" type="button">Set your first goal</button>
+    </article>`,
+      "New families now start with no budget and no goal by design, so this is the state most people see first."
+    ),
+  }),
+
   "components/tour.html": page({
     group: "Onboarding",
     title: "Guided tour",
