@@ -122,6 +122,20 @@ SCREENS = {
         "reference": REFERENCE_DIR / "desktop-expenses.png",
         "threshold": 90.0,
     },
+    # Onboarding is the screen a new family member sees first, so it is worth
+    # regression cover. ?screen=setup renders the signed-in-but-family-less state.
+    "mobile-setup": {
+        "path": "/?preview=1&screen=setup",
+        "size": (390, 1500),
+        "reference": REFERENCE_DIR / "mobile-setup.png",
+        "threshold": 90.0,
+    },
+    "desktop-setup": {
+        "path": "/?preview=1&screen=setup",
+        "size": (1180, 900),
+        "reference": REFERENCE_DIR / "desktop-setup.png",
+        "threshold": 90.0,
+    },
 }
 
 

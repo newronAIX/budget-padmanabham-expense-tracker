@@ -981,6 +981,18 @@ button {
   padding-bottom: 24px;
 }
 
+/* No budget set means no bar to make room for. */
+.expense-summary.no-budget {
+  padding-bottom: 12px;
+}
+
+.entry-footnote {
+  margin: var(--space-5) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
 .budget-status-block {
   margin-bottom: 14px;
 }

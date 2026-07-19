@@ -6,6 +6,7 @@
   const INCOME_DEFAULTS = ["Salary", "Rent", "Pension", "Business"];
   const TERMS_VERSION = "2026-06-21";
   const KEY_CHECK_TEXT = "budget-padmanabham-family-key-v1";
+  const KEY_FINGERPRINT_CONTEXT = "budget-join-v1";
 
   const config = window.BUDGET_CONFIG || {};
   const params = new URLSearchParams(window.location.search);
@@ -23,6 +24,9 @@
   const frozenToday = previewMode && /^\d{4}-\d{2}-\d{2}$/.test(params.get("today") || "")
     ? params.get("today")
     : null;
+  // Renders a signed-in-but-family-less state so the onboarding screen can be
+  // reviewed and screenshotted without a real Supabase session.
+  const previewSetup = previewMode && params.get("screen") === "setup";
   const hasSupabase = Boolean(config.SUPABASE_URL && config.SUPABASE_PUBLISHABLE_KEY && window.supabase);
   const client = hasSupabase
     ? window.supabase.createClient(config.SUPABASE_URL, config.SUPABASE_PUBLISHABLE_KEY, {
@@ -44,8 +48,6 @@
     incomes: [],
     analyticsSnapshots: [],
     invites: [],
-    joinRequests: [],
-    pendingRequest: null,
     familyKey: null,
     privacyLocked: false,
     insightTab: "overview",
@@ -163,8 +165,7 @@
         expenses: state.expenses,
         incomes: state.incomes,
         analyticsSnapshots: state.analyticsSnapshots,
-        invites: state.invites,
-        joinRequests: state.joinRequests
+        invites: state.invites
       })
     );
   }
@@ -172,6 +173,7 @@
   function seedDemo() {
     const saved = readDemo();
     state.user = { id: "demo-user", email: "ramesh@example.com", user_metadata: { full_name: "Ramesh Padmanabham" } };
+    if (previewSetup) return; // signed in, no family -> setupScreen()
     if (!saved && state.preview) {
       const seeded = seededPreviewData();
       state.family = seeded.family;
@@ -181,7 +183,6 @@
       state.expenses = seeded.expenses;
       state.incomes = seeded.incomes;
       state.invites = seeded.invites;
-      state.joinRequests = seeded.joinRequests;
       return;
     }
     state.family = saved?.family || null;
@@ -192,7 +193,6 @@
     state.incomes = saved?.incomes || [];
     state.analyticsSnapshots = saved?.analyticsSnapshots || [];
     state.invites = saved?.invites || [];
-    state.joinRequests = saved?.joinRequests || [];
   }
 
   function seededPreviewData() {
@@ -267,10 +267,7 @@
       categories,
       expenses,
       incomes,
-      invites: [],
-      joinRequests: [
-        { id: "jr-1", family_id: family.id, display_name: "Suresh", status: "PENDING", requested_at: new Date().toISOString() }
-      ]
+      invites: []
     };
   }
 
@@ -346,15 +343,9 @@
       .limit(1);
     if (membershipError) throw membershipError;
 
+    // No membership means the setup screen. There is no longer a pending state to
+    // check for: joining is immediate, so you are either in a family or you are not.
     if (!memberships?.length) {
-      const { data: pendingRows, error: pendingError } = await client
-        .from("budget_join_requests")
-        .select("*")
-        .eq("user_id", state.user.id)
-        .in("status", ["PENDING", "REJECTED"])
-        .order("requested_at", { ascending: false })
-        .limit(1);
-      if (pendingError) throw pendingError;
       state.family = null;
       state.membership = null;
       state.people = [];
@@ -363,22 +354,15 @@
       state.incomes = [];
       state.analyticsSnapshots = [];
       state.invites = [];
-      state.joinRequests = [];
-      state.pendingRequest = pendingRows?.[0] || null;
       state.privacyLocked = false;
-      if (state.pendingRequest) {
-        ensurePendingRealtime(state.user.id);
-      } else {
-        stopRealtime();
-      }
+      stopRealtime();
       render();
       return;
     }
 
     state.membership = memberships[0];
-    state.pendingRequest = null;
     const familyId = memberships[0].family_id;
-    const [familyRes, peopleRes, categoriesRes, expensesRes, incomesRes, requestsRes, snapshotsRes] = await Promise.all([
+    const [familyRes, peopleRes, categoriesRes, expensesRes, incomesRes, snapshotsRes] = await Promise.all([
       client.from("budget_families").select("*").eq("id", familyId).single(),
       client.from("budget_people").select("*").eq("family_id", familyId).order("created_at"),
       client.from("budget_categories").select("*").eq("family_id", familyId).order("scope").order("name"),
@@ -394,12 +378,6 @@
         .eq("family_id", familyId)
         .order("created_at", { ascending: false }),
       client
-        .from("budget_join_requests")
-        .select("*")
-        .eq("family_id", familyId)
-        .eq("status", "PENDING")
-        .order("requested_at", { ascending: true }),
-      client
         .from("budget_analytics_snapshots")
         .select("*")
         .eq("family_id", familyId)
@@ -411,11 +389,12 @@
     if (categoriesRes.error) throw categoriesRes.error;
     if (expensesRes.error) throw expensesRes.error;
     if (incomesRes.error) throw incomesRes.error;
-    if (requestsRes.error) throw requestsRes.error;
     if (snapshotsRes.error) throw snapshotsRes.error;
 
     state.family = familyRes.data;
     await loadFamilyKey();
+    // Self-heal pre-existing families so new members can join (owner-only write).
+    if (state.familyKey && !familyRes.data?.key_fingerprint) await backfillKeyFingerprint(state.familyKey);
     state.family = await hydrateFamily(familyRes.data);
     state.people = await hydratePeople(peopleRes.data || []);
     state.categories = await hydrateCategories(categoriesRes.data || []);
@@ -423,7 +402,6 @@
     state.incomes = await hydrateIncomes(incomesRes.data || []);
     state.analyticsSnapshots = await hydrateAnalyticsSnapshots(snapshotsRes.data || []);
     state.invites = [];
-    state.joinRequests = await hydrateJoinRequests(requestsRes.data || []);
     ensureRealtime(familyId);
     if (state.familyKey && !state.analyticsSnapshots.some((snapshot) => snapshot.month_key === currentMonth())) {
       queueAnalyticsSnapshot(currentMonth());
@@ -473,24 +451,11 @@
       .channel(`budget-family-${familyId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "budget_families", filter: `id=eq.${familyId}` }, reload)
       .on("postgres_changes", { event: "*", schema: "public", table: "budget_family_users", filter: `family_id=eq.${familyId}` }, reload)
-      .on("postgres_changes", { event: "*", schema: "public", table: "budget_join_requests", filter: `family_id=eq.${familyId}` }, reload)
       .on("postgres_changes", { event: "*", schema: "public", table: "budget_people", filter: `family_id=eq.${familyId}` }, reload)
       .on("postgres_changes", { event: "*", schema: "public", table: "budget_categories", filter: `family_id=eq.${familyId}` }, reload)
       .on("postgres_changes", { event: "*", schema: "public", table: "budget_expenses", filter: `family_id=eq.${familyId}` }, reload)
       .on("postgres_changes", { event: "*", schema: "public", table: "budget_incomes", filter: `family_id=eq.${familyId}` }, reload)
       .on("postgres_changes", { event: "*", schema: "public", table: "budget_analytics_snapshots", filter: `family_id=eq.${familyId}` }, reload)
-      .subscribe();
-  }
-
-  function ensurePendingRealtime(userId) {
-    const key = `pending:${userId}`;
-    if (!client || state.demo || !userId || realtimeFamilyId === key) return;
-    stopRealtime();
-    const reload = () => queueRefresh(250);
-    realtimeFamilyId = key;
-    realtimeChannel = client
-      .channel(`budget-pending-${userId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "budget_join_requests", filter: `user_id=eq.${userId}` }, reload)
       .subscribe();
   }
 
@@ -947,46 +912,34 @@
     const defaultName = state.user?.user_metadata?.full_name || state.user?.email?.split("@")[0] || "";
     const createDraft = readFormDraft("create-family");
     const joinDraft = readFormDraft("join-family");
-    if (state.pendingRequest?.status === "PENDING") {
-      return `
-        <section class="auth card">
-          <div class="auth-mark">₹</div>
-          <h2>Waiting for moderator</h2>
-          <p>Your request to join this family was sent. The family moderator needs to approve you before you can enter expenses.</p>
-          <button class="secondary wide" data-action="signout">Sign out</button>
-        </section>
-      `;
-    }
     return `
       <section class="entry-panel">
         <div class="choice-hero">
           <span class="secure-pill">First step</span>
-          <h2>Choose how you want to enter</h2>
-          <p>Create a new family if you are starting the group. Join an existing family if someone already sent you a Budget code.</p>
-          ${state.pendingRequest?.status === "REJECTED" ? `<p>Your last join request was not approved. You can check with the moderator and send a new request.</p>` : ""}
+          <h2>Join your family, or start one</h2>
+          <p>If someone sent you a family code and password, enter them below and you are straight in. If you are the first one here, create the family and share those two things with everyone else.</p>
         </div>
         <div class="setup-grid">
-          <form class="card panel setup-card create-choice" data-form="create-family">
-            <span class="choice-number">1</span>
-            <h2>Create a family</h2>
-            <p class="section-subtitle">Use this when you are the first person setting up the family.</p>
-            <label class="field">Family name<input class="input" name="family" value="${escapeHtml(createDraft.family || "Padmanabham Family")}" required></label>
-            <label class="field">Your display name<input class="input" name="person" value="${escapeHtml(createDraft.person || defaultName)}" required></label>
-            <label class="field">Monthly budget<input class="input" name="budget" type="number" value="${escapeHtml(createDraft.budget || "150000")}" min="0"></label>
-            <label class="field">Savings goal<input class="input" name="savings_goal" type="number" value="${escapeHtml(createDraft.savings_goal || "0")}" min="0"><small>Optional monthly savings target.</small></label>
-            <label class="field">Family privacy password<input class="input" name="privacy" type="password" minlength="8" autocomplete="new-password" value="${escapeHtml(createDraft.privacy || "")}" required><small>Share this only with approved family members. It is not stored in Supabase.</small></label>
-            <button class="primary wide" type="submit">Create family</button>
-          </form>
           <form class="card panel setup-card join-choice" data-form="join-family">
+            <span class="choice-number">1</span>
+            <h2>I have a family code</h2>
+            <p class="section-subtitle">Enter both and you are in. Nobody needs to approve you.</p>
+            <label class="field">Family code<input class="input code-input" name="code" value="${escapeHtml(joinDraft.code || "")}" placeholder="BUDGET-XXXXXXXXXXXX" autocomplete="off" autocapitalize="characters" spellcheck="false" required></label>
+            <label class="field">Family password<input class="input" name="privacy" type="password" autocomplete="current-password" value="${escapeHtml(joinDraft.privacy || "")}" required><small>The same password everyone in your family uses. Ask whoever sent you the code.</small></label>
+            <label class="field">Your name<input class="input" name="person" value="${escapeHtml(joinDraft.person || defaultName)}" required><small>How your spending shows up to the family.</small></label>
+            <button class="primary wide" type="submit">Join family</button>
+          </form>
+          <form class="card panel setup-card create-choice" data-form="create-family">
             <span class="choice-number">2</span>
-            <h2>Join existing family</h2>
-            <p class="section-subtitle">Use the one invite code shared by your family.</p>
-            <label class="field">Invite code<input class="input code-input" name="code" value="${escapeHtml(joinDraft.code || "")}" placeholder="BUDGET-1234" required></label>
-            <label class="field">Your display name<input class="input" name="person" value="${escapeHtml(joinDraft.person || defaultName)}" required></label>
-            <label class="field">Family privacy password<input class="input" name="privacy" type="password" autocomplete="current-password" value="${escapeHtml(joinDraft.privacy || "")}" required><small>Ask the family moderator for this separately from the invite code.</small></label>
-            <button class="secondary wide" type="submit">Join with code</button>
+            <h2>Start a new family</h2>
+            <p class="section-subtitle">Use this if you are the first person setting things up.</p>
+            <label class="field">Family name<input class="input" name="family" value="${escapeHtml(createDraft.family || "")}" placeholder="Padmanabham Family" required></label>
+            <label class="field">Your name<input class="input" name="person" value="${escapeHtml(createDraft.person || defaultName)}" required></label>
+            <label class="field">Create a family password<input class="input" name="privacy" type="password" minlength="8" autocomplete="new-password" value="${escapeHtml(createDraft.privacy || "")}" required><small>At least 8 characters. This is what scrambles your family's money data before it leaves this device, so nobody else can read it. Share it with your family along with the code. If everyone forgets it, the data cannot be recovered.</small></label>
+            <button class="secondary wide" type="submit">Create family</button>
           </form>
         </div>
+        <p class="entry-footnote">You can set a monthly budget and a savings goal later, once you have added a few expenses and know what looks normal.</p>
       </section>
     `;
   }
@@ -1069,7 +1022,7 @@
       <section class="auth card">
         <div class="auth-mark">₹</div>
         <h2>Set family privacy</h2>
-        <p>${isOwner ? "Create a family privacy password before entering family data. It encrypts the monthly plan, categories, people, expenses, income, and insights in the browser before saving." : "The family moderator needs to create the privacy password before family data can be entered."}</p>
+        <p>${isOwner ? "Create a family privacy password before entering family data. It encrypts the monthly plan, categories, people, expenses, income, and insights in the browser before saving." : "The person who created this family needs to set the family password before anything can be entered."}</p>
         ${isOwner ? `
           <form data-form="privacy-setup">
             <label class="field">Family privacy password<input class="input" name="privacy" type="password" minlength="8" autocomplete="new-password" value="${escapeHtml(draft.privacy || "")}" required></label>
@@ -1114,14 +1067,16 @@
         </div>
       </section>
       <section class="home-card-stack">
-        <article class="finance-summary-card card expense-summary">
+        <article class="finance-summary-card card expense-summary${budget ? "" : " no-budget"}">
           <div>
             <span>Expenses</span>
             <strong>${money(spend)}</strong>
-            <small>${expenseUsed || 0}% of monthly budget used</small>
+            <!-- No budget is the default for a new family, so say something useful
+                 instead of "0% of monthly budget used", which implies one exists. -->
+            <small>${budget ? `${expenseUsed || 0}% of monthly budget used` : "Set a monthly budget in Family to track this"}</small>
           </div>
           <b>₹</b>
-          <i class="${expenseUsed >= 100 ? "over" : expenseUsed >= 80 ? "near" : ""}" style="width:${Math.min(100, Math.max(5, expenseUsed))}%"></i>
+          ${budget ? `<i class="${expenseUsed >= 100 ? "over" : expenseUsed >= 80 ? "near" : ""}" style="width:${Math.min(100, Math.max(5, expenseUsed))}%"></i>` : ""}
         </article>
         <article class="finance-summary-card card savings-summary">
           <div>
@@ -1876,18 +1831,17 @@
     const isOwner = state.membership?.role === "OWNER";
     const inviteCode = state.family?.invite_code || "Code is being prepared";
     const locked = Boolean(state.family?.invite_locked);
-    const pending = state.joinRequests.filter((request) => request.status === "PENDING");
     return `
       <section class="dashboard-grid">
         <div class="card panel">
           <div class="section-head">
             <h2>Family Members</h2>
-            <span class="secure-pill">Invite approval only</span>
+            <span class="secure-pill">Code + password</span>
           </div>
           ${state.people.map((person) => `
             <article class="item">
               <span class="avatar">${personInitial(person.display_name)}</span>
-              <div class="item-main"><strong>${escapeHtml(person.display_name)}</strong><span>${person.linked_user_id ? (person.linked_user_id === state.family.owner_id ? "Moderator" : "Signed in member") : "Past expense person"}</span></div>
+              <div class="item-main"><strong>${escapeHtml(person.display_name)}</strong><span>${person.linked_user_id ? (person.linked_user_id === state.family.owner_id ? "Family admin" : "Signed in member") : "Past expense person"}</span></div>
               ${isOwner && person.linked_user_id && person.linked_user_id !== state.family.owner_id ? `<div class="item-actions"><button class="danger" data-remove-member="${person.linked_user_id}" data-member-name="${escapeHtml(person.display_name)}">Remove</button></div>` : ""}
             </article>
           `).join("")}
@@ -1911,23 +1865,9 @@
               <button class="${locked ? "primary" : "danger"} wide" data-action="toggle-family-lock">${locked ? "Unlock joining" : "Lock joining"}</button>
             ` : ""}
           </div>
-          <p class="muted invite-help">${isOwner ? "Rotate if the old code was shared too widely. Old code stops working." : "You can share the code. Only the moderator can rotate, lock, or unlock joining."}</p>
+          <p class="muted invite-help">${isOwner ? "Rotate if the old code was shared too widely. Old code stops working." : "You can share the code. Only the family admin can rotate, lock, or unlock joining."}</p>
           ${!state.preview ? budgetGoalsPanel() : ""}
           ${!state.preview ? categoryLimitsPanel() : ""}
-          ${isOwner ? `
-            <hr>
-            <h2>Join requests</h2>
-            ${pending.length ? pending.map((request) => `
-              <article class="join-request">
-                <strong>${escapeHtml(request.display_name)}</strong>
-                <span>${niceDate(String(request.requested_at || todayKey()).slice(0, 10))}</span>
-                <div class="item-actions">
-                  <button class="primary" data-review-request="${request.id}" data-decision="APPROVED">Accept</button>
-                  <button class="danger" data-review-request="${request.id}" data-decision="REJECTED">Reject</button>
-                </div>
-              </article>
-            `).join("") : `<p class="muted">No pending requests.</p>`}
-          ` : ""}
           <hr>
           <button class="danger wide" data-action="leave-family">Leave family</button>
           <button class="secondary wide" data-action="signout">Sign out</button>
@@ -1940,7 +1880,6 @@
     const isOwner = state.membership?.role === "OWNER";
     const inviteCode = state.family?.invite_code || "Code is being prepared";
     const locked = Boolean(state.family?.invite_locked);
-    const pending = state.joinRequests.filter((request) => request.status === "PENDING");
     return `
       <section class="mobile-family-page">
         ${!state.preview ? budgetGoalsPanel("mobile") : ""}
@@ -1967,25 +1906,10 @@
           <article><span>◌</span><div><strong>Privacy Mode</strong><small>Hide balances by default</small></div><button class="switch-action" type="button" aria-label="Privacy mode"></button></article>
           <article><span>▤</span><div><strong>Shared Data Encryption</strong><small>End-to-end active</small></div><b class="check-dot">✓</b></article>
         </div>
-        ${isOwner && pending.length ? `
-          <h2>Join requests</h2>
-          <div class="card owner-control-list join-list">
-            ${pending.map((request) => `
-              <article>
-                <span>${personInitial(request.display_name)}</span>
-                <div><strong>${escapeHtml(request.display_name)}</strong><small>${niceDate(String(request.requested_at || todayKey()).slice(0, 10))}</small></div>
-                <div class="inline-actions">
-                  <button data-review-request="${request.id}" data-decision="APPROVED">Accept</button>
-                  <button data-review-request="${request.id}" data-decision="REJECTED">Reject</button>
-                </div>
-              </article>
-            `).join("")}
-          </div>
-        ` : ""}
         <h2 class="danger-title">Danger Zone</h2>
         <div class="danger-zone-card">
           <button data-action="rotate-invite"><strong>Rotate Invite Code</strong><span>Old code stops working</span></button>
-          <button data-action="toggle-family-lock"><strong>${locked ? "Unlock Joining" : "Lock Joining"}</strong><span>${locked ? "Allow approved requests again" : "Stop new join requests"}</span></button>
+          <button data-action="toggle-family-lock"><strong>${locked ? "Unlock Joining" : "Lock Joining"}</strong><span>${locked ? "Let people join with the code again" : "Nobody new can join, even with the code"}</span></button>
           <button data-action="leave-family"><strong>Leave Family</strong><span>Exit this family group</span></button>
         </div>
         <p class="version-line">Version 2.4.0 · Secured by Padmanabham Infrastructure</p>
@@ -2344,7 +2268,6 @@
     document.querySelector("[data-action='rotate-invite']")?.addEventListener("click", run(rotateInviteCode));
     document.querySelector("[data-action='leave-family']")?.addEventListener("click", run(leaveFamily));
     document.querySelector("[data-copy-invite]")?.addEventListener("click", run(copyInviteCode));
-    document.querySelectorAll("[data-review-request]").forEach((button) => button.addEventListener("click", run(() => reviewJoinRequest(button.dataset.reviewRequest, button.dataset.decision))));
     document.querySelectorAll("[data-remove-member]").forEach((button) => button.addEventListener("click", run(() => removeFamilyMember(button.dataset.removeMember, button.dataset.memberName))));
     document.querySelectorAll("[data-insight-tab]").forEach((button) => button.addEventListener("click", () => {
       state.insightTab = button.dataset.insightTab;
@@ -2534,10 +2457,29 @@
     return JSON.parse(decoder.decode(plaintext));
   }
 
+  // Proof that the holder knows the family privacy password, safe to hand to the
+  // server. Domain separated so it is not simply the hash of the encryption key.
+  // The server compares this against budget_families.key_fingerprint, which is why
+  // joining can be gated on the password without the server ever seeing it.
+  async function familyKeyFingerprint(key) {
+    const raw = new Uint8Array(await crypto.subtle.exportKey("raw", key));
+    const material = encoder.encode(KEY_FINGERPRINT_CONTEXT);
+    const input = new Uint8Array(material.length + raw.length);
+    input.set(material, 0);
+    input.set(raw, material.length);
+    const digest = await crypto.subtle.digest("SHA-256", input);
+    return bytesToBase64(new Uint8Array(digest));
+  }
+
   async function createPrivacySetup(passphrase) {
     const salt = randomBase64(16);
     const key = await deriveFamilyKey(passphrase, salt);
-    return { salt, key, check: await encryptJson(key, { check: KEY_CHECK_TEXT }) };
+    return {
+      salt,
+      key,
+      check: await encryptJson(key, { check: KEY_CHECK_TEXT }),
+      fingerprint: await familyKeyFingerprint(key)
+    };
   }
 
   async function verifyPrivacyKey(passphrase, salt, check) {
@@ -2617,28 +2559,6 @@
         hydrated.push({ ...row, ...(await decryptJson(state.familyKey, row.encrypted_payload)), encrypted: true });
       } catch (_) {
         hydrated.push({ ...row, name: "Locked category", color: COLORS[0], monthly_limit: 0, locked: true });
-        state.privacyLocked = true;
-      }
-    }
-    return hydrated;
-  }
-
-  async function hydrateJoinRequests(rows) {
-    const hydrated = [];
-    for (const row of rows) {
-      if (!row.encrypted_payload) {
-        hydrated.push({ ...row, needsEncryptionMigration: Boolean(state.familyKey) });
-        continue;
-      }
-      if (!state.familyKey) {
-        hydrated.push({ ...row, display_name: "Locked request", locked: true });
-        state.privacyLocked = true;
-        continue;
-      }
-      try {
-        hydrated.push({ ...row, ...(await decryptJson(state.familyKey, row.encrypted_payload)), encrypted: true });
-      } catch (_) {
-        hydrated.push({ ...row, display_name: "Locked request", locked: true });
         state.privacyLocked = true;
       }
     }
@@ -2734,11 +2654,6 @@
     return encryptJson(state.familyKey, plain);
   }
 
-  async function encryptedJoinRequestPayload(plain, key = state.familyKey) {
-    if (!key) throw new Error("Please unlock family privacy first.");
-    return encryptJson(key, plain);
-  }
-
   function familySettingsPayload(source = state.family) {
     return {
       name: source?.name || "Family",
@@ -2767,10 +2682,13 @@
     const data = Object.fromEntries(new FormData(form).entries());
     const familyName = requireText(data.family || "My Family", "family name", 80);
     const personName = requireText(data.person || "Me", "your display name", 80);
-    const budget = data.budget ? boundedNumber(data.budget, "Monthly budget", 0, 999999999) : 0;
-    const savingsGoal = nonnegativeMoney(data.savings_goal || 0, "savings goal");
-    const privacy = requireText(data.privacy, "a family privacy password", 120);
-    if (privacy.length < 8) throw new Error("Family privacy password must be at least 8 characters.");
+    // Budget and savings goal are no longer asked for up front -- you cannot
+    // sensibly pick them before entering a single expense. Both start unset and
+    // are edited later from the Family tab (familyPlanForm).
+    const budget = 0;
+    const savingsGoal = 0;
+    const privacy = requireText(data.privacy, "a family password", 120);
+    if (privacy.length < 8) throw new Error("Family password must be at least 8 characters.");
     const privacySetup = await createPrivacySetup(privacy);
 
     if (state.demo) {
@@ -2802,6 +2720,8 @@
         invite_locked: false,
         encryption_salt: privacySetup.salt,
         encryption_check: privacySetup.check,
+        // Lets the server verify a joiner's password without ever seeing it.
+        key_fingerprint: privacySetup.fingerprint,
         encrypted_payload: await encryptJson(privacySetup.key, {
           name: familyName,
           currency_code: "INR",
@@ -2857,40 +2777,60 @@
     if (error) throw error;
   }
 
+  // Invite code + family password is the whole flow. No approval step: the password
+  // is the real gate, and it is now verified server side (see join_budget_family in
+  // schema.sql), so waiting on a moderator was friction without protection.
   async function joinFamily(form) {
     const data = Object.fromEntries(new FormData(form).entries());
     if (state.demo) throw new Error("Invite joining needs Supabase. Preview mode can create a family locally.");
     const code = requireText(data.code, "invite code", 32).toUpperCase();
     const person = requireText(data.person || "Family member", "your display name", 80);
     const privacy = requireText(data.privacy, "the family privacy password", 120);
-    let familyKeyForJoin = null;
+
     const { data: securityRows, error: securityError } = await client.rpc("get_budget_invite_security", {
       invite_code_input: code
     });
     if (securityError) throw securityError;
     const security = securityRows?.[0];
-    if (!security) throw new Error("Invite code is invalid or locked.");
-    if (security.encryption_salt && security.encryption_check) {
-      familyKeyForJoin = await verifyPrivacyKey(privacy, security.encryption_salt, security.encryption_check);
-      await rememberFamilyKey(security.family_id, familyKeyForJoin);
+    if (!security) throw new Error("That invite code is not valid, or this family has stopped accepting new members.");
+    if (!security.encryption_salt) {
+      throw new Error("This family is not ready for new members yet. Ask the person who created the family to open the app once, then try again.");
     }
-    const { data: joinedFamilyId, error } = await client.rpc("join_budget_invite", {
+
+    // Derive locally and send only the fingerprint -- the password never leaves
+    // the browser. A wrong password is rejected by the server, not by us.
+    const familyKeyForJoin = await deriveFamilyKey(privacy, security.encryption_salt);
+    const fingerprint = await familyKeyFingerprint(familyKeyForJoin);
+
+    const { data: joinedFamilyId, error } = await client.rpc("join_budget_family", {
       invite_code_input: code,
-      display_name_input: person
+      display_name_input: person,
+      key_fingerprint_input: fingerprint
     });
     if (error) throw error;
-    if (familyKeyForJoin && joinedFamilyId) {
-      const { error: requestEncryptError } = await client
-        .from("budget_join_requests")
+
+    // Only persist the key once the server has accepted it, so a failed attempt
+    // cannot leave a bad key cached for this family.
+    await rememberFamilyKey(joinedFamilyId || security.family_id, familyKeyForJoin);
+    state.familyKey = familyKeyForJoin;
+    state.privacyLocked = false;
+
+    // Replace the placeholder name the RPC inserted with an encrypted one. This
+    // browser holds the key; under the old approval flow the moderator's browser
+    // had to do it afterwards, leaving the name in plaintext until then.
+    if (joinedFamilyId) {
+      const { error: personEncryptError } = await client
+        .from("budget_people")
         .update({
-          display_name: "Encrypted request",
-          encrypted_payload: await encryptedJoinRequestPayload({ display_name: person }, familyKeyForJoin),
+          display_name: "Encrypted member",
+          encrypted_payload: await encryptJson(familyKeyForJoin, { display_name: person }),
           encryption_version: 1
         })
         .eq("family_id", joinedFamilyId)
-        .eq("user_id", state.user.id);
-      if (requestEncryptError) throw requestEncryptError;
+        .eq("linked_user_id", state.user.id);
+      if (personEncryptError) throw personEncryptError;
     }
+
     clearFormDraft("join-family");
     await load();
   }
@@ -2902,12 +2842,32 @@
     await rememberFamilyKey(state.family.id, key);
     state.familyKey = key;
     state.privacyLocked = false;
+    await backfillKeyFingerprint(key);
     clearFormDraft("privacy-unlock");
     await load();
   }
 
+  // Families created before server side password verification have no fingerprint,
+  // so join_budget_family refuses them. Anyone who unlocks proves they know the
+  // password, so they can safely write it -- the family self heals on first use.
+  async function backfillKeyFingerprint(key) {
+    if (!client || state.demo) return;
+    if (!state.family?.id || state.family.key_fingerprint) return;
+    try {
+      const fingerprint = await familyKeyFingerprint(key);
+      await client
+        .from("budget_families")
+        .update({ key_fingerprint: fingerprint })
+        .eq("id", state.family.id)
+        .is("key_fingerprint", null);
+    } catch (_) {
+      // Non-fatal: only the owner can write this row, and unlocking must still
+      // succeed for everyone else.
+    }
+  }
+
   async function setupPrivacy(form) {
-    if (state.membership?.role !== "OWNER") throw new Error("Only the family moderator can turn on encryption.");
+    if (state.membership?.role !== "OWNER") throw new Error("Only the family admin can turn on encryption.");
     const data = Object.fromEntries(new FormData(form).entries());
     const privacy = requireText(data.privacy, "a family privacy password", 120);
     if (privacy.length < 8) throw new Error("Family privacy password must be at least 8 characters.");
@@ -2931,84 +2891,8 @@
     await load();
   }
 
-  async function reviewJoinRequest(id, decision) {
-    if (state.membership?.role !== "OWNER") throw new Error("Only the family moderator can review join requests.");
-    const request = state.joinRequests.find((item) => item.id === id);
-    if (state.demo) {
-      state.joinRequests = state.joinRequests.map((request) => request.id === id ? { ...request, status: decision } : request);
-      writeDemo();
-      render();
-      return;
-    }
-    const { error } = await client.rpc("review_budget_join_request", {
-      request_id_input: id,
-      decision_input: decision
-    });
-    if (error) throw error;
-    if (decision === "APPROVED" && request?.user_id && request?.display_name && state.familyKey) {
-      const { data: peopleRows, error: peopleError } = await client
-        .from("budget_people")
-        .select("id")
-        .eq("family_id", state.family.id)
-        .eq("linked_user_id", request.user_id)
-        .limit(1);
-      if (peopleError) throw peopleError;
-      const personId = peopleRows?.[0]?.id;
-      if (personId) {
-        const { error: personEncryptError } = await client
-          .from("budget_people")
-          .update({
-            display_name: "Encrypted member",
-            encrypted_payload: await encryptedPersonPayload({ display_name: request.display_name }),
-            encryption_version: 1
-          })
-          .eq("id", personId);
-        if (personEncryptError) throw personEncryptError;
-      }
-    }
-    await load();
-  }
-
-  async function leaveFamily() {
-    if (!window.confirm("Leave this family? If you are the moderator, the next moderator will be chosen alphabetically.")) return;
-    if (state.demo) {
-      state.family = null;
-      state.membership = null;
-      state.people = [];
-      state.expenses = [];
-      state.incomes = [];
-      writeDemo();
-      render();
-      return;
-    }
-    const familyId = state.family.id;
-    const { error } = await client.rpc("leave_budget_family", { target_family: familyId });
-    if (error) throw error;
-    localStorage.removeItem(keyStorageKey(familyId));
-    await load();
-  }
-
-  async function rotateInviteCode() {
-    if (state.membership?.role !== "OWNER") throw new Error("Only the family moderator can rotate the invite code.");
-    if (!window.confirm("Rotate the invite code? The old code will stop working immediately.")) return;
-    if (state.demo) {
-      const nextCode = createInviteCode();
-      state.family = { ...state.family, invite_code: nextCode };
-      writeDemo();
-      render();
-      window.alert(`New invite code: ${nextCode}`);
-      return;
-    }
-    const { data, error } = await client.rpc("rotate_budget_family_invite", {
-      target_family: state.family.id
-    });
-    if (error) throw error;
-    await load();
-    window.alert(`New invite code: ${data}`);
-  }
-
   async function removeFamilyMember(userId, memberName) {
-    if (state.membership?.role !== "OWNER") throw new Error("Only the family moderator can remove members.");
+    if (state.membership?.role !== "OWNER") throw new Error("Only the family admin can remove members.");
     if (!userId) throw new Error("This person is not a signed-in member.");
     if (!window.confirm(`Remove ${memberName || "this member"} from the family? They will lose access immediately.`)) return;
     if (state.demo) {
@@ -3260,7 +3144,7 @@
   }
 
   async function saveFamilyPlanning(form) {
-    if (state.membership?.role !== "OWNER") throw new Error("Only the family moderator can change the monthly plan.");
+    if (state.membership?.role !== "OWNER") throw new Error("Only the family admin can change the monthly plan.");
     const data = Object.fromEntries(new FormData(form).entries());
     const payload = {
       monthly_budget: nonnegativeMoney(data.monthly_budget || 0, "monthly budget"),
@@ -3286,7 +3170,7 @@
   }
 
   async function saveCategoryLimits(form) {
-    if (state.membership?.role !== "OWNER") throw new Error("Only the family moderator can change category limits.");
+    if (state.membership?.role !== "OWNER") throw new Error("Only the family admin can change category limits.");
     const fields = [...form.querySelectorAll("[data-limit-category]")];
     const updates = activeExpenseCategories().map((category) => {
       const field = fields.find((input) => input.dataset.limitCategory === category.id);
@@ -3333,7 +3217,6 @@
       state.family.needsEncryptionMigration ||
       state.people.some((person) => person.needsEncryptionMigration) ||
       state.categories.some((category) => category.needsEncryptionMigration) ||
-      state.joinRequests.some((request) => request.needsEncryptionMigration) ||
       state.expenses.some((expense) => expense.needsEncryptionMigration) ||
       state.incomes.some((income) => income.needsEncryptionMigration);
     if (!hasWork) return;
@@ -3369,15 +3252,6 @@
           encrypted_payload: await encryptedCategoryPayload(categoryPayload(category)),
           encryption_version: 1
         }).eq("id", category.id);
-        if (error) throw error;
-      }
-
-      for (const request of state.joinRequests.filter((item) => item.needsEncryptionMigration)) {
-        const { error } = await client.from("budget_join_requests").update({
-          display_name: "Encrypted request",
-          encrypted_payload: await encryptedJoinRequestPayload({ display_name: request.display_name }),
-          encryption_version: 1
-        }).eq("id", request.id);
         if (error) throw error;
       }
 

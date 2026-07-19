@@ -77,7 +77,7 @@
       <p>Budget Padmanabham is a family expense and income tracker. It lets an approved family group record expenses, recurring income, categories, budgets, savings goals, and encrypted analytics for household use.</p>
 
       <h2>2. Login And Family Access</h2>
-      <p>The app supports Google/Gmail sign-in through Supabase Auth. A person can create a family or request to join a family with an invite code. The family moderator can approve or reject join requests, lock or unlock joining, rotate the invite code, and remove members.</p>
+      <p>The app supports Google/Gmail sign-in through Supabase Auth. A person can create a family, or join an existing one by entering its invite code together with the family privacy password. Both are required: the password is verified by the server, so an invite code on its own does not grant access. Joining is immediate and does not need approval. The family admin can lock or unlock joining, rotate the invite code, and remove members.</p>
       <p>Only approved family members should receive the invite code and the family privacy password. Anyone who has both can decrypt family records in the browser.</p>
 
       <h2>3. End-To-End Encryption</h2>
@@ -88,7 +88,7 @@
       <p>The app stores the minimum information needed to operate login, membership, invite review, encrypted syncing, and realtime updates:</p>
       <ul>
         <li>Google account identity from Supabase Auth, such as email address and profile name.</li>
-        <li>User ids, family ids, row ids, timestamps, invite status, membership role, and approval/removal state.</li>
+        <li>User ids, family ids, row ids, timestamps, invite status, membership role, and removal state.</li>
         <li>Encrypted text payloads for family content and analytics.</li>
         <li>Local browser storage for the signed-in session and remembered family encryption key on that device.</li>
       </ul>
@@ -97,13 +97,13 @@
       <p>The app does not ask for bank logins, card numbers, UPI PINs, account passwords, government IDs, live location, contacts, or the family privacy password.</p>
 
       <h2>6. What The Database Owner Can See</h2>
-      <p>The database owner can see authentication metadata and operational metadata such as emails, user ids, family ids, table row ids, timestamps, invite/request status, membership roles, and encrypted payload text. The database owner should not be able to read encrypted family financial content unless an approved family member shares the family privacy password or decrypted content outside the app.</p>
+      <p>The database owner can see authentication metadata and operational metadata such as emails, user ids, family ids, table row ids, timestamps, invite status, membership roles, and encrypted payload text. The database owner should not be able to read encrypted family financial content unless an approved family member shares the family privacy password or decrypted content outside the app.</p>
 
       <h2>7. Member Responsibilities</h2>
       <p>Family members are responsible for entering accurate records, keeping the invite code and family privacy password private, and using this app only for lawful family budgeting. Do not add another person without their permission.</p>
 
       <h2>8. Deleting Or Leaving</h2>
-      <p>A moderator can remove family members. If the moderator leaves or is removed, ownership can be reassigned according to the app's family rules. Removing a member stops their future app access, but it cannot revoke information they already viewed or copied while approved.</p>
+      <p>A family admin can remove family members. If the admin leaves or is removed, ownership can be reassigned according to the app's family rules. Removing a member stops their future app access, but it cannot revoke information they already viewed or copied while approved.</p>
 
       <h2>9. Service Providers</h2>
       <p>The app uses Supabase for authentication, database, and realtime sync, Vercel for hosting, and Google for Google sign-in. These providers may process operational metadata needed to run the app.</p>
@@ -112,7 +112,7 @@
       <p>These terms and this privacy policy may be updated as the app changes. Continued use after an update means you accept the latest version.</p>
 
       <h2>11. Contact</h2>
-      <p>For questions, contact the family moderator or app administrator who invited you to use Budget Padmanabham.</p>
+      <p>For questions, contact the family admin or app administrator who invited you to use Budget Padmanabham.</p>
     </main>
   </body>
 </html>

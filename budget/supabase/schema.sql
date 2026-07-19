@@ -24,6 +24,7 @@ create table if not exists public.budget_families (
   invite_locked boolean not null default false,
   encryption_salt text,
   encryption_check text,
+  key_fingerprint text,
   encrypted_payload text,
   encryption_version int,
   created_at timestamptz not null default now(),
@@ -197,6 +198,14 @@ begin
   if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_families' and column_name = 'encryption_version') then
     alter table public.budget_families add column encryption_version int;
   end if;
+  -- Proof that a joiner knows the family privacy password, checked server side by
+  -- join_budget_family. Holds SHA-256("budget-join-v1" || raw family key), base64.
+  -- Domain separated so it is not simply the hash of the encryption key, and never
+  -- exposed by get_budget_invite_security -- reading it requires membership, and
+  -- members already know the password.
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_families' and column_name = 'key_fingerprint') then
+    alter table public.budget_families add column key_fingerprint text;
+  end if;
   if not exists (select 1 from pg_constraint where conname = 'budget_families_invite_code_format') then
     alter table public.budget_families add constraint budget_families_invite_code_format check (invite_code is null or invite_code ~ '^BUDGET-[A-Z0-9]{4,12}$');
   end if;
@@ -280,7 +289,9 @@ declare
 begin
   for family_row in select id from public.budget_families where invite_code is null loop
     loop
-      candidate := 'BUDGET-' || upper(substr(encode(extensions.gen_random_bytes(6), 'hex'), 1, 8));
+      -- 12 hex chars = 48 bits. The previous 8 (32 bits) was guessable at scale
+    -- against an RPC with no rate limiting, and a hit reveals a joinable family.
+    candidate := 'BUDGET-' || upper(substr(encode(extensions.gen_random_bytes(6), 'hex'), 1, 12));
       exit when not exists (select 1 from public.budget_families where invite_code = candidate);
     end loop;
     update public.budget_families set invite_code = candidate where id = family_row.id;
@@ -316,7 +327,9 @@ begin
   end if;
 
   loop
-    candidate := 'BUDGET-' || upper(substr(encode(extensions.gen_random_bytes(6), 'hex'), 1, 8));
+    -- 12 hex chars = 48 bits. The previous 8 (32 bits) was guessable at scale
+    -- against an RPC with no rate limiting, and a hit reveals a joinable family.
+    candidate := 'BUDGET-' || upper(substr(encode(extensions.gen_random_bytes(6), 'hex'), 1, 12));
     exit when not exists (select 1 from public.budget_families where invite_code = candidate);
   end loop;
 
@@ -387,7 +400,23 @@ $$;
 revoke all on function public.is_budget_family_user(uuid) from public;
 grant execute on function public.is_budget_family_user(uuid) to authenticated;
 
-create or replace function budget_private.join_budget_invite(invite_code_input text, display_name_input text)
+-- Joining is now one step: a valid invite code plus proof of the family privacy
+-- password grants membership immediately. There is no approval queue.
+--
+-- This is safe only because the password is verified HERE. Previously the client
+-- checked it and the server checked nothing, so moderator approval was the only
+-- real gate; anything that removed approval without this check would have made
+-- the invite code alone sufficient.
+--
+-- The joiner sends SHA-256("budget-join-v1" || raw key) derived from the password
+-- and the family's salt. We compare against the stored fingerprint. The server
+-- never sees the password or the key, and the comparison leaks nothing a member
+-- does not already know.
+create or replace function budget_private.join_budget_family(
+  invite_code_input text,
+  display_name_input text,
+  key_fingerprint_input text
+)
 returns uuid
 language plpgsql
 security definer
@@ -397,6 +426,7 @@ declare
   family_row public.budget_families%rowtype;
   normalized_code text := upper(trim(invite_code_input));
   member_name text := nullif(trim(display_name_input), '');
+  supplied_fingerprint text := nullif(trim(key_fingerprint_input), '');
   current_email text := auth.email();
 begin
   if auth.uid() is null then
@@ -417,6 +447,7 @@ begin
     raise exception 'This family is locked. Ask the family creator to unlock joining.';
   end if;
 
+  -- Already a member: succeed without re-checking, so a retry is harmless.
   if exists (
     select 1 from public.budget_family_users
     where family_id = family_row.id and user_id = auth.uid()
@@ -424,41 +455,75 @@ begin
     return family_row.id;
   end if;
 
-  insert into public.budget_join_requests (family_id, user_id, display_name, status)
+  -- A family created before encryption existed has no password to prove, which
+  -- would mean no gate at all. Refuse rather than silently letting the code alone
+  -- be sufficient. An existing member backfills this by unlocking once.
+  if family_row.encryption_salt is null or family_row.key_fingerprint is null then
+    raise exception 'This family is not ready for new members yet. Ask the person who created the family to open the app once, then try again.';
+  end if;
+
+  if supplied_fingerprint is null or supplied_fingerprint <> family_row.key_fingerprint then
+    raise exception 'Family password is incorrect';
+  end if;
+
+  insert into public.budget_family_users (family_id, user_id, role)
+  values (family_row.id, auth.uid(), 'MEMBER')
+  on conflict (family_id, user_id) do nothing;
+
+  -- Placeholder name only. The joiner's browser immediately overwrites this with
+  -- an encrypted payload -- it holds the key, which the old approval flow did not
+  -- (the moderator's browser had to encrypt it afterwards).
+  insert into public.budget_people (family_id, display_name, linked_user_id, created_by)
   values (
     family_row.id,
-    auth.uid(),
     coalesce(member_name, current_email, 'Family member'),
-    'PENDING'
+    auth.uid(),
+    auth.uid()
   )
-  on conflict (family_id, user_id) do update
-    set display_name = excluded.display_name,
-        status = 'PENDING',
-        requested_at = now(),
-        reviewed_by = null,
-        reviewed_at = null;
+  on conflict (family_id, linked_user_id) where linked_user_id is not null do update
+    set display_name = excluded.display_name;
 
   return family_row.id;
 end;
 $$;
 
-revoke all on function budget_private.join_budget_invite(text, text) from public;
-grant execute on function budget_private.join_budget_invite(text, text) to authenticated;
+revoke all on function budget_private.join_budget_family(text, text, text) from public;
+grant execute on function budget_private.join_budget_family(text, text, text) to authenticated;
 
-create or replace function public.join_budget_invite(invite_code_input text, display_name_input text)
+create or replace function public.join_budget_family(
+  invite_code_input text,
+  display_name_input text,
+  key_fingerprint_input text
+)
 returns uuid
 language sql
 security invoker
 set search_path = ''
 as $$
-  select budget_private.join_budget_invite(invite_code_input, display_name_input);
+  select budget_private.join_budget_family(invite_code_input, display_name_input, key_fingerprint_input);
 $$;
 
-revoke all on function public.join_budget_invite(text, text) from public;
-grant execute on function public.join_budget_invite(text, text) to authenticated;
+revoke all on function public.join_budget_family(text, text, text) from public;
+grant execute on function public.join_budget_family(text, text, text) to authenticated;
 
+-- Superseded by join_budget_family. Dropped rather than left callable: it creates
+-- PENDING rows nothing consumes any more, and it enforces no password.
+drop function if exists public.join_budget_invite(text, text);
+drop function if exists budget_private.join_budget_invite(text, text);
+
+-- Return type changed (encryption_check removed), which create or replace cannot do.
+drop function if exists public.get_budget_invite_security(text);
+drop function if exists budget_private.get_budget_invite_security(text);
+
+-- Hands back only what a joiner needs to DERIVE the key: the salt.
+--
+-- It used to also return encryption_check, the ciphertext verifier. Any signed-in
+-- user with a valid code could fetch salt + verifier and mount an unlimited
+-- offline dictionary attack on the family password, entirely off our infra.
+-- Verification now happens server side in join_budget_family, so the verifier
+-- never has to leave the row -- reading it requires membership.
 create or replace function budget_private.get_budget_invite_security(invite_code_input text)
-returns table(family_id uuid, family_name text, encryption_salt text, encryption_check text)
+returns table(family_id uuid, family_name text, encryption_salt text)
 language plpgsql
 security definer
 set search_path = ''
@@ -471,7 +536,7 @@ begin
   end if;
 
   return query
-  select f.id, f.name, f.encryption_salt, f.encryption_check
+  select f.id, f.name, f.encryption_salt
   from public.budget_families f
   where f.invite_code = normalized_code
     and f.invite_locked is false
@@ -483,7 +548,7 @@ revoke all on function budget_private.get_budget_invite_security(text) from publ
 grant execute on function budget_private.get_budget_invite_security(text) to authenticated;
 
 create or replace function public.get_budget_invite_security(invite_code_input text)
-returns table(family_id uuid, family_name text, encryption_salt text, encryption_check text)
+returns table(family_id uuid, family_name text, encryption_salt text)
 language sql
 security invoker
 set search_path = ''
@@ -494,75 +559,15 @@ $$;
 revoke all on function public.get_budget_invite_security(text) from public;
 grant execute on function public.get_budget_invite_security(text) to authenticated;
 
-create or replace function budget_private.review_budget_join_request(request_id_input uuid, decision_input text)
-returns void
-language plpgsql
-security definer
-set search_path = ''
-as $$
-declare
-  request_row public.budget_join_requests%rowtype;
-  decision text := upper(trim(decision_input));
-begin
-  if auth.uid() is null then
-    raise exception 'Not signed in';
-  end if;
-
-  select *
-  into request_row
-  from public.budget_join_requests
-  where id = request_id_input
-    and status = 'PENDING'
-  limit 1;
-
-  if request_row.id is null then
-    raise exception 'Join request not found';
-  end if;
-
-  if not exists (
-    select 1 from public.budget_families f
-    where f.id = request_row.family_id and f.owner_id = auth.uid()
-  ) then
-    raise exception 'Only the family moderator can review join requests';
-  end if;
-
-  if decision not in ('APPROVED', 'REJECTED') then
-    raise exception 'Decision must be APPROVED or REJECTED';
-  end if;
-
-  update public.budget_join_requests
-  set status = decision,
-      reviewed_by = auth.uid(),
-      reviewed_at = now()
-  where id = request_row.id;
-
-  if decision = 'APPROVED' then
-    insert into public.budget_family_users (family_id, user_id, role)
-    values (request_row.family_id, request_row.user_id, 'MEMBER')
-    on conflict (family_id, user_id) do nothing;
-
-    insert into public.budget_people (family_id, display_name, linked_user_id, created_by)
-    values (request_row.family_id, request_row.display_name, request_row.user_id, auth.uid())
-    on conflict (family_id, linked_user_id) where linked_user_id is not null do update
-      set display_name = excluded.display_name;
-  end if;
-end;
-$$;
-
-revoke all on function budget_private.review_budget_join_request(uuid, text) from public;
-grant execute on function budget_private.review_budget_join_request(uuid, text) to authenticated;
-
-create or replace function public.review_budget_join_request(request_id_input uuid, decision_input text)
-returns void
-language sql
-security invoker
-set search_path = ''
-as $$
-  select budget_private.review_budget_join_request(request_id_input, decision_input);
-$$;
-
-revoke all on function public.review_budget_join_request(uuid, text) from public;
-grant execute on function public.review_budget_join_request(uuid, text) to authenticated;
+-- review_budget_join_request is gone: joining no longer needs approval, so there
+-- is nothing to review. Its two inserts (budget_family_users + budget_people)
+-- moved into join_budget_family above.
+--
+-- The budget_join_requests table is deliberately KEPT for now. Nothing writes to
+-- it any more and the app no longer reads it, but dropping a table that may hold
+-- live rows is a separate, deliberate migration -- not something to bundle in here.
+drop function if exists public.review_budget_join_request(uuid, text);
+drop function if exists budget_private.review_budget_join_request(uuid, text);
 
 create or replace function budget_private.leave_budget_family(target_family uuid)
 returns void
@@ -648,11 +653,13 @@ begin
     select 1 from public.budget_families
     where id = target_family and owner_id = auth.uid()
   ) then
-    raise exception 'Only the family moderator can rotate the invite code';
+    raise exception 'Only the family admin can rotate the invite code';
   end if;
 
   loop
-    candidate := 'BUDGET-' || upper(substr(encode(extensions.gen_random_bytes(6), 'hex'), 1, 8));
+    -- 12 hex chars = 48 bits. The previous 8 (32 bits) was guessable at scale
+    -- against an RPC with no rate limiting, and a hit reveals a joinable family.
+    candidate := 'BUDGET-' || upper(substr(encode(extensions.gen_random_bytes(6), 'hex'), 1, 12));
     exit when not exists (select 1 from public.budget_families where invite_code = candidate);
   end loop;
 
@@ -694,7 +701,7 @@ begin
     select 1 from public.budget_families
     where id = target_family and owner_id = auth.uid()
   ) then
-    raise exception 'Only the family moderator can remove members';
+    raise exception 'Only the family admin can remove members';
   end if;
 
   if target_user = auth.uid() then
@@ -705,7 +712,7 @@ begin
     select 1 from public.budget_families
     where id = target_family and owner_id = target_user
   ) then
-    raise exception 'The current moderator cannot be removed';
+    raise exception 'The family admin cannot be removed';
   end if;
 
   delete from public.budget_family_users
@@ -717,12 +724,10 @@ begin
   where family_id = target_family
     and linked_user_id = target_user;
 
-  update public.budget_join_requests
-  set status = 'REJECTED',
-      reviewed_by = auth.uid(),
-      reviewed_at = now()
-  where family_id = target_family
-    and user_id = target_user;
+  -- Previously also rejected the user's join request, to stop a removed member
+  -- walking back in through the approval queue. That queue no longer exists, and
+  -- nothing reads budget_join_requests, so the write had no effect. Re-entry is
+  -- now governed by the invite code + password (rotate the code, or lock joining).
 end;
 $$;
 
@@ -956,12 +961,21 @@ for insert to authenticated with check (
 );
 
 drop policy if exists "budget_invites_owner_update" on public.budget_invites;
+-- The WITH CHECK used to validate only `status`, re-checking nothing about
+-- family_id, invite_code, inviter_id or invited_email. That let any member of any
+-- family -- or anyone merely named as invited_email, who need not be a member at
+-- all -- repoint a row at an arbitrary family_id and invite_code: a row you can
+-- write but cannot read. It now mirrors the scoping the USING clause applies.
 create policy "budget_invites_owner_update" on public.budget_invites
 for update to authenticated using (
   public.is_budget_family_user(family_id)
   or lower(invited_email) = lower(auth.email())
 ) with check (
   status in ('PENDING', 'ACCEPTED', 'EXPIRED')
+  and (
+    public.is_budget_family_user(family_id)
+    or lower(invited_email) = lower(auth.email())
+  )
 );
 
 do $$

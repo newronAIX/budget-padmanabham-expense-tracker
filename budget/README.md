@@ -7,7 +7,8 @@ The app keeps daily entry simple for older family members:
 - Google-only sign-in through Supabase Auth.
 - One clear "Add expense" flow.
 - Expense date defaults to the current date.
-- Invite-code family setup with moderator approval, member removal, invite locking, and invite rotation.
+- One-step joining: a family code plus the family password gets you straight in, with no approval queue. The password is verified server side, so the code alone is not enough.
+- Family admin controls: remove members, lock joining, rotate the code.
 - Family dashboard, expenses, editing/deleting expenses, recurring income, categories, budget limits, savings goals, insights, invite codes, and sign out.
 - Browser-side family encryption for family names, member display names, categories, monthly plans, expenses, income, and analytics snapshots.
 - Large touch targets and plain labels.
