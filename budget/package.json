@@ -5,6 +5,7 @@
   "description": "Mobile-first family expense tracker.",
   "scripts": {
     "check": "node --check app.js",
+    "test:smoke": "python3 scripts/run_smoke.py",
     "start": "python3 -m http.server 5188 --bind 127.0.0.1",
     "test:visual-parity": "python3 scripts/visual_parity.py --mode stitch",
     "test:visual": "python3 scripts/visual_parity.py --mode baseline",

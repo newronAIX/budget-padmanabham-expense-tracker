@@ -78,6 +78,7 @@
   const analyticsSnapshotMonths = new Set();
   let privacyMigrationRunning = false;
   let viewportWatcherInstalled = false;
+  let tourState = null;
 
   const todayKey = () => {
     if (frozenToday) return frozenToday;
@@ -410,6 +411,7 @@
     render();
     flushAnalyticsSnapshotQueue();
     migratePlaintextPrivacyRows();
+    maybeStartTour();
   }
 
   function setupAutoRefresh() {
@@ -450,7 +452,11 @@
 
   function queueRefresh(delay = 400) {
     if (state.demo || !state.user || state.checkingSession) return;
-    if (state.modal) {
+    // A refresh rebuilds the whole DOM. Mid-tour that would strand the spotlight
+    // over a detached node, so defer exactly as we already do for open modals.
+    // endTour() drains this in a finally -- if it did not, refreshAfterModal
+    // would latch true and the app would silently stop updating for the session.
+    if (state.modal || tourActive()) {
       refreshAfterModal = true;
       return;
     }
@@ -823,10 +829,13 @@
       ${state.modal ? modal() : ""}
     `;
     bind();
-    if (!state.modal && refreshAfterModal) {
+    if (!state.modal && !tourActive() && refreshAfterModal) {
       refreshAfterModal = false;
       queueRefresh(0);
     }
+    // Last, and every render: the tour lives outside #app so it survives the
+    // innerHTML wipe, but its target element does not. Re-resolve, never cache.
+    syncTour();
   }
 
   function visualActivityScreen() {
@@ -990,7 +999,7 @@
 
   function sidebar() {
     return `
-      <aside class="sidebar">
+      <aside class="sidebar" data-tour="sidebar">
         <div class="side-title">
           <strong>Budget Padmanabham</strong>
           <span>Family Steward</span>
@@ -1012,13 +1021,13 @@
 
   function bottomNav() {
     return `
-      <nav class="bottom-nav">
+      <nav class="bottom-nav" data-tour="nav">
         ${mobileNavButton("dashboard", "⌂", "Home")}
         ${mobileNavButton("insights", "▤", "Insights")}
         ${mobileNavButton("income", "▣", "Income")}
         ${mobileNavButton("family", "☷", "Family")}
       </nav>
-      <button class="floating-add" data-modal="expense" aria-label="Add expense">+</button>
+      <button class="floating-add" data-modal="expense" data-tour="fab" aria-label="Add expense">+</button>
     `;
   }
 
@@ -1090,14 +1099,14 @@
         <b>${monthLabel(currentMonth())}</b>
         <em>INR (₹)</em>
       </section>
-      <section class="home-balance-card">
+      <section class="home-balance-card" data-tour="balance">
         <div>
           <span>Total Monthly Income</span>
           <strong>${money(homeIncome)}</strong>
           <small>${state.preview ? "+8.2% vs last month" : analytics.labels.income_change}</small>
         </div>
       </section>
-      <section class="home-card-stack">
+      <section class="home-card-stack" data-tour="summary">
         <article class="finance-summary-card card expense-summary${budget ? "" : " no-budget"}">
           <div>
             <span>Expenses</span>
@@ -1134,7 +1143,7 @@
         </div>
       </section>
       <section class="dashboard-grid">
-        <div class="activity-block recent-panel">
+        <div class="activity-block recent-panel" data-tour="recent">
           <div class="activity-head">
             <h2>Recent Activity</h2>
             <button class="activity-link" data-tab="expenses">SEE ALL</button>
@@ -1902,6 +1911,7 @@
           ${!state.preview ? budgetGoalsPanel() : ""}
           ${!state.preview ? categoryLimitsPanel() : ""}
           <hr>
+          <button class="secondary wide" data-action="replay-tour">Show me around again</button>
           <button class="danger wide" data-action="leave-family">Leave family</button>
           <button class="secondary wide" data-action="signout">Sign out</button>
         </aside>
@@ -1943,6 +1953,7 @@
         <div class="danger-zone-card">
           <button data-action="rotate-invite"><strong>Rotate Invite Code</strong><span>Old code stops working</span></button>
           <button data-action="toggle-family-lock"><strong>${locked ? "Unlock Joining" : "Lock Joining"}</strong><span>${locked ? "Let people join with the code again" : "Nobody new can join, even with the code"}</span></button>
+          <button data-action="replay-tour"><strong>Show Me Around Again</strong><span>Replay the quick tour</span></button>
           <button data-action="leave-family"><strong>Leave Family</strong><span>Exit this family group</span></button>
         </div>
         <p class="version-line">Version 2.4.0 · Secured by Padmanabham Infrastructure</p>
@@ -2297,10 +2308,13 @@
     document.querySelectorAll("[data-edit-category]").forEach((button) => button.addEventListener("click", () => openModal("category", button.dataset.editCategory)));
     document.querySelectorAll("[data-delete-category]").forEach((button) => button.addEventListener("click", run(() => deleteCategory(button.dataset.deleteCategory))));
     document.querySelectorAll("[data-edit-person]").forEach((button) => button.addEventListener("click", () => openModal("person", button.dataset.editPerson)));
-    document.querySelector("[data-action='toggle-family-lock']")?.addEventListener("click", run(toggleFamilyLock));
-    document.querySelector("[data-action='rotate-invite']")?.addEventListener("click", run(rotateInviteCode));
-    document.querySelector("[data-action='leave-family']")?.addEventListener("click", run(leaveFamily));
-    document.querySelector("[data-copy-invite]")?.addEventListener("click", run(copyInviteCode));
+    // querySelectorAll, not querySelector: the mobile family screen renders two
+    // copy-invite buttons, so the singular form left "Share invite link" dead.
+    document.querySelectorAll("[data-action='toggle-family-lock']").forEach((button) => button.addEventListener("click", run(toggleFamilyLock)));
+    document.querySelectorAll("[data-action='rotate-invite']").forEach((button) => button.addEventListener("click", run(rotateInviteCode)));
+    document.querySelectorAll("[data-action='leave-family']").forEach((button) => button.addEventListener("click", run(leaveFamily)));
+    document.querySelectorAll("[data-copy-invite]").forEach((button) => button.addEventListener("click", run(copyInviteCode)));
+    document.querySelectorAll("[data-action='replay-tour']").forEach((button) => button.addEventListener("click", () => startTour()));
     document.querySelectorAll("[data-remove-member]").forEach((button) => button.addEventListener("click", run(() => removeFamilyMember(button.dataset.removeMember, button.dataset.memberName))));
     document.querySelectorAll("[data-insight-tab]").forEach((button) => button.addEventListener("click", () => {
       state.insightTab = button.dataset.insightTab;
@@ -2926,6 +2940,44 @@
     await load();
   }
 
+  async function leaveFamily() {
+    if (!window.confirm("Leave this family? If you are the family admin, the next admin will be chosen alphabetically.")) return;
+    if (state.demo) {
+      state.family = null;
+      state.membership = null;
+      state.people = [];
+      state.expenses = [];
+      state.incomes = [];
+      writeDemo();
+      render();
+      return;
+    }
+    const familyId = state.family.id;
+    const { error } = await client.rpc("leave_budget_family", { target_family: familyId });
+    if (error) throw error;
+    localStorage.removeItem(keyStorageKey(familyId));
+    await load();
+  }
+
+  async function rotateInviteCode() {
+    if (state.membership?.role !== "OWNER") throw new Error("Only the family admin can rotate the invite code.");
+    if (!window.confirm("Rotate the invite code? The old code will stop working immediately.")) return;
+    if (state.demo) {
+      const nextCode = createInviteCode();
+      state.family = { ...state.family, invite_code: nextCode };
+      writeDemo();
+      render();
+      window.alert(`New invite code: ${nextCode}`);
+      return;
+    }
+    const { data, error } = await client.rpc("rotate_budget_family_invite", {
+      target_family: state.family.id
+    });
+    if (error) throw error;
+    await load();
+    window.alert(`New invite code: ${data}`);
+  }
+
   async function removeFamilyMember(userId, memberName) {
     if (state.membership?.role !== "OWNER") throw new Error("Only the family admin can remove members.");
     if (!userId) throw new Error("This person is not a signed-in member.");
@@ -3439,6 +3491,364 @@
 
   function softColor(hex) {
     return `${hex || COLORS[0]}22`;
+  }
+
+  /* ==========================================================================
+     First-run guided tour
+
+     Anchors a spotlight to real elements in the live app. The overlay is appended
+     to document.body -- a SIBLING of #app -- because render() only assigns
+     app.innerHTML, so anything outside #app survives every re-render for free.
+
+     Tour state is deliberately module-level rather than on `state`: load() mutates
+     `state` constantly and writeDemo() serialises it.
+     ========================================================================== */
+
+  const TOUR_VERSION = 1;
+
+  const TOUR_STEPS = [
+    {
+      id: "balance",
+      target: '[data-tour="balance"]',
+      title: "Your month at a glance",
+      body: "This is everything coming in this month. It updates on its own as your family adds expenses.",
+      placement: "bottom",
+      requires: { tab: "dashboard" }
+    },
+    {
+      id: "summary",
+      target: '[data-tour="summary"]',
+      title: "Spending and savings",
+      body: "What has gone out this month, and how your savings goal is doing. You can set a monthly budget later from the Family tab.",
+      placement: "bottom",
+      requires: { tab: "dashboard" }
+    },
+    {
+      id: "recent",
+      target: '[data-tour="recent"]',
+      title: "The latest entries",
+      body: "The most recent expenses anyone in the family added. Tap SEE ALL for the full list.",
+      placement: "top",
+      requires: { tab: "dashboard" },
+      optional: true
+    },
+    {
+      id: "fab",
+      target: '[data-tour="fab"]',
+      title: "Add an expense",
+      body: "This is the button you will use most. Tap it any time to record something you spent.",
+      // Hardcoded, not auto: near the home indicator, auto-flip picks wrong.
+      placement: "top",
+      requires: { desktop: false },
+      optional: true
+    },
+    {
+      id: "nav",
+      target: '[data-tour="nav"]',
+      title: "Everything else lives here",
+      body: "Insights shows charts, Income tracks money arriving each month, and Family is where you share your code and manage members.",
+      placement: "top",
+      requires: { desktop: false },
+      optional: true
+    },
+    {
+      id: "sidebar",
+      target: '[data-tour="sidebar"]',
+      title: "Everything else lives here",
+      body: "Insights shows charts, Income tracks money arriving each month, and Family is where you share your code and manage members.",
+      placement: "right",
+      requires: { desktop: true },
+      optional: true
+    }
+  ];
+
+  function tourStorageKey() {
+    return `${STORAGE_KEY}:tour:v${TOUR_VERSION}:${state.user?.id || "anon"}`;
+  }
+
+  function tourAlreadySeen() {
+    try {
+      return Boolean(JSON.parse(localStorage.getItem(tourStorageKey()) || "null")?.completed);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function markTourSeen() {
+    try {
+      localStorage.setItem(tourStorageKey(), JSON.stringify({ completed: true, at: new Date().toISOString() }));
+    } catch (_) {
+      // Private browsing. Worst case the tour offers itself again.
+    }
+  }
+
+  function tourActive() {
+    return Boolean(tourState);
+  }
+
+  function prefersReducedMotion() {
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+
+  // Steps whose requirements the current view cannot satisfy are dropped up front,
+  // so "step 2 of 4" counts only steps that will actually be shown.
+  function eligibleTourSteps() {
+    const isDesktop = isDesktopMode();
+    return TOUR_STEPS.filter((step) => {
+      if (step.requires?.desktop === true && !isDesktop) return false;
+      if (step.requires?.desktop === false && isDesktop) return false;
+      return true;
+    });
+  }
+
+  function maybeStartTour() {
+    // Must never run in preview/visual mode: the overlay would corrupt every
+    // screenshot the visual baseline depends on.
+    if (previewMode || visualMode) return;
+    if (!state.user || !state.family || state.privacyLocked) return;
+    if (tourActive() || tourAlreadySeen()) return;
+    startTour();
+  }
+
+  function startTour() {
+    if (tourActive()) return;
+    const steps = eligibleTourSteps();
+    if (!steps.length) return;
+
+    tourState = { steps, index: 0, returnFocus: document.activeElement };
+
+    const root = document.createElement("div");
+    root.className = "tour-root";
+    root.setAttribute("role", "dialog");
+    root.setAttribute("aria-modal", "true");
+    root.setAttribute("aria-labelledby", "tour-title");
+    root.setAttribute("aria-describedby", "tour-body");
+    root.innerHTML = `
+      <div class="tour-scrim"></div>
+      <div class="tour-hole" aria-hidden="true"></div>
+      <div class="tour-tip">
+        <span class="tour-arrow" aria-hidden="true"></span>
+        <p class="tour-step-count"></p>
+        <h2 class="tour-title" id="tour-title" tabindex="-1"></h2>
+        <p class="tour-body" id="tour-body"></p>
+        <div class="tour-actions">
+          <button type="button" class="tour-skip">Skip</button>
+          <div class="tour-nav-buttons">
+            <button type="button" class="tour-back">Back</button>
+            <button type="button" class="tour-next primary"></button>
+          </div>
+        </div>
+      </div>
+      <p class="tour-status" aria-live="polite"></p>
+    `;
+    document.body.appendChild(root);
+    tourState.root = root;
+
+    root.querySelector(".tour-skip").addEventListener("click", () => endTour(false));
+    root.querySelector(".tour-back").addEventListener("click", () => goToTourStep(tourState.index - 1));
+    root.querySelector(".tour-next").addEventListener("click", () => goToTourStep(tourState.index + 1));
+    // Clicking the dimmed area advances, which is what people try first.
+    root.querySelector(".tour-scrim").addEventListener("click", () => goToTourStep(tourState.index + 1));
+
+    tourState.onKeyDown = (event) => {
+      if (event.key === "Escape") { event.preventDefault(); endTour(false); }
+      else if (event.key === "ArrowRight") goToTourStep(tourState.index + 1);
+      else if (event.key === "ArrowLeft") goToTourStep(tourState.index - 1);
+      else if (event.key === "Tab") trapTourFocus(event);
+    };
+    tourState.onReposition = () => syncTour();
+    document.addEventListener("keydown", tourState.onKeyDown, true);
+    window.addEventListener("resize", tourState.onReposition);
+    window.addEventListener("orientationchange", tourState.onReposition);
+    window.addEventListener("scroll", tourState.onReposition, true);
+
+    // inert rather than aria-hidden: it blocks focus as well as AT, and it is a
+    // single attribute on #app itself so it survives innerHTML replacement.
+    app.setAttribute("inert", "");
+
+    goToTourStep(0);
+  }
+
+  function trapTourFocus(event) {
+    const focusables = tourState.root.querySelectorAll("button");
+    if (!focusables.length) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  function goToTourStep(index) {
+    if (!tourActive()) return;
+    if (index >= tourState.steps.length) return endTour(true);
+    if (index < 0) return;
+    tourState.index = index;
+
+    const step = tourState.steps[index];
+    // A step may need a different tab than the one showing.
+    if (step.requires?.tab && state.tab !== step.requires.tab) {
+      state.tab = step.requires.tab;
+      render(); // render() calls syncTour(), which paints this step
+      return;
+    }
+    syncTour();
+    tourState.root.querySelector(".tour-title").focus({ preventScroll: true });
+  }
+
+  function resolveTourTarget(step) {
+    return document.querySelector(step.target);
+  }
+
+  function syncTour() {
+    if (!tourActive()) return;
+    const { root, steps, index } = tourState;
+    const step = steps[index];
+    const element = resolveTourTarget(step);
+
+    if (!element) {
+      // Optional steps (an empty activity list, a control for the other
+      // breakpoint) are skipped. A required one falls back to a centred card
+      // rather than leaving a spotlight hole over nothing.
+      if (step.optional && index + 1 < steps.length) return goToTourStep(index + 1);
+      if (step.optional) return endTour(true);
+      root.classList.add("tour-root--paused");
+      paintTourText(step, index, steps.length);
+      return;
+    }
+
+    root.classList.remove("tour-root--paused");
+    paintTourText(step, index, steps.length);
+    scrollTourTargetIntoView(element, () => positionTour(element, step));
+  }
+
+  function paintTourText(step, index, total) {
+    const { root } = tourState;
+    root.querySelector(".tour-step-count").textContent = `Step ${index + 1} of ${total}`;
+    root.querySelector(".tour-title").textContent = step.title;
+    root.querySelector(".tour-body").textContent = step.body;
+    root.querySelector(".tour-next").textContent = index + 1 === total ? "Done" : "Next";
+    root.querySelector(".tour-back").hidden = index === 0;
+    root.querySelector(".tour-status").textContent = `Step ${index + 1} of ${total}. ${step.title}.`;
+  }
+
+  function scrollTourTargetIntoView(element, done) {
+    const rect = element.getBoundingClientRect();
+    const fullyVisible = rect.top >= 0 && rect.bottom <= window.innerHeight;
+    if (fullyVisible) return done();
+    element.scrollIntoView({ block: "center", behavior: prefersReducedMotion() ? "auto" : "smooth" });
+    // scrollend is not reliable across browsers here, so settle by measuring:
+    // wait until the rect stops moving for two consecutive frames.
+    let last = null;
+    let stable = 0;
+    let frames = 0;
+    const tick = () => {
+      if (!tourActive()) return;
+      const now = element.getBoundingClientRect().top;
+      stable = last !== null && Math.abs(now - last) < 0.5 ? stable + 1 : 0;
+      last = now;
+      frames += 1;
+      if (stable >= 2 || frames > 30) return done();
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
+  function positionTour(element, step) {
+    const { root } = tourState;
+    const rect = element.getBoundingClientRect();
+    const pad = 6;
+    const x = Math.max(0, rect.left - pad);
+    const y = Math.max(0, rect.top - pad);
+    const w = rect.width + pad * 2;
+    const h = rect.height + pad * 2;
+
+    // One style write; the spotlight and tooltip both key off these.
+    root.style.setProperty("--t-x", `${x}px`);
+    root.style.setProperty("--t-y", `${y}px`);
+    root.style.setProperty("--t-w", `${w}px`);
+    root.style.setProperty("--t-h", `${h}px`);
+
+    const tip = root.querySelector(".tour-tip");
+    const arrow = root.querySelector(".tour-arrow");
+    const tipRect = tip.getBoundingClientRect();
+    const edge = 12;
+    const gap = 12;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    const fitsAbove = y - tipRect.height - gap >= edge;
+    const fitsBelow = y + h + tipRect.height + gap <= vh - edge;
+
+    let placement = step.placement || "bottom";
+    if (placement === "top" && !fitsAbove) placement = fitsBelow ? "bottom" : "float";
+    else if (placement === "bottom" && !fitsBelow) placement = fitsAbove ? "top" : "float";
+    else if (placement === "right" && x + w + gap + tipRect.width > vw - edge) {
+      placement = fitsBelow ? "bottom" : fitsAbove ? "top" : "float";
+    }
+
+    let top;
+    let left;
+    if (placement === "right") {
+      left = x + w + gap;
+      top = clamp(y + h / 2 - tipRect.height / 2, edge, vh - tipRect.height - edge);
+    } else {
+      left = clamp(x + w / 2 - tipRect.width / 2, edge, vw - tipRect.width - edge);
+      // "float": the target is taller than the space around it (common for the
+      // sidebar, or a long list on desktop). Neither side fits, so detach from
+      // the target and clamp into view rather than positioning off-screen --
+      // previously `top` was never clamped, which pushed the buttons out of
+      // reach entirely.
+      top = placement === "top" ? y - tipRect.height - gap
+          : placement === "bottom" ? y + h + gap
+          : clamp(y + h / 2 - tipRect.height / 2, edge, vh - tipRect.height - edge);
+    }
+    top = clamp(top, edge, Math.max(edge, vh - tipRect.height - edge));
+
+    tip.style.top = `${top}px`;
+    tip.style.left = `${left}px`;
+    tip.dataset.placement = placement;
+
+    // Clamp the arrow inside the bubble's rounded corners, or it slides off on
+    // edge-anchored targets like the FAB. Floating tips get no arrow, since it
+    // would point at nothing.
+    if (placement === "right") {
+      arrow.style.left = "";
+      arrow.style.top = `${clamp(y + h / 2 - top, 16, Math.max(16, tipRect.height - 16))}px`;
+    } else {
+      arrow.style.top = "";
+      arrow.style.left = `${clamp(x + w / 2 - left, 20, Math.max(20, tipRect.width - 20))}px`;
+    }
+  }
+
+  function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+  }
+
+  function endTour(completed) {
+    if (!tourActive()) return;
+    const { root, onKeyDown, onReposition, returnFocus } = tourState;
+    try {
+      if (completed) markTourSeen();
+      else markTourSeen(); // dismissing counts as seen; a replay button exists
+      document.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("resize", onReposition);
+      window.removeEventListener("orientationchange", onReposition);
+      window.removeEventListener("scroll", onReposition, true);
+      root.remove();
+    } finally {
+      // These two MUST run even if something above threw. Leaving #app inert
+      // makes the app unusable, and skipping the refresh flush latches
+      // refreshAfterModal true so data silently stops updating.
+      tourState = null;
+      app.removeAttribute("inert");
+      if (returnFocus?.isConnected) returnFocus.focus?.();
+      queueRefresh(0);
+    }
   }
 
   function escapeHtml(value) {

@@ -4023,3 +4023,178 @@ summary:focus-visible,
   font-weight: var(--weight-regular);
   line-height: var(--leading-snug);
 }
+
+/* ==========================================================================
+   Guided tour
+
+   Lives on document.body, outside #app, so render() (which only assigns
+   app.innerHTML) never destroys it. Positioned entirely from four custom
+   properties written in one go by positionTour().
+   ========================================================================== */
+.tour-root {
+  --t-x: 0px;
+  --t-y: 0px;
+  --t-w: 0px;
+  --t-h: 0px;
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-tour);
+  pointer-events: none;
+}
+
+.tour-scrim {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+}
+
+/* One element, one paint. A giant spread shadow is the cutout -- cheaper and
+   better supported than four divs or a clip-path, and animating the hole's
+   position animates the whole scrim for free. */
+.tour-hole {
+  position: absolute;
+  top: var(--t-y);
+  left: var(--t-x);
+  width: var(--t-w);
+  height: var(--t-h);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 0 0 9999px rgba(9, 24, 18, 0.66);
+  transition:
+    top var(--dur-base) var(--ease-standard),
+    left var(--dur-base) var(--ease-standard),
+    width var(--dur-base) var(--ease-standard),
+    height var(--dur-base) var(--ease-standard);
+  pointer-events: none;
+}
+
+.tour-root--paused .tour-hole {
+  opacity: 0;
+}
+
+.tour-tip {
+  position: absolute;
+  width: min(340px, calc(100vw - 32px));
+  padding: var(--space-4);
+  border-radius: var(--radius-xl);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow: var(--elev-3);
+  pointer-events: auto;
+  transition:
+    top var(--dur-base) var(--ease-standard),
+    left var(--dur-base) var(--ease-standard);
+}
+
+.tour-root--paused .tour-tip {
+  top: 50% !important;
+  left: 50% !important;
+  transform: translate(-50%, -50%);
+}
+
+.tour-arrow {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  transform: rotate(45deg);
+  background: var(--bg-surface);
+}
+
+.tour-tip[data-placement="bottom"] .tour-arrow {
+  top: -6px;
+  margin-left: -6px;
+}
+
+.tour-tip[data-placement="top"] .tour-arrow {
+  bottom: -6px;
+  margin-left: -6px;
+}
+
+.tour-tip[data-placement="right"] .tour-arrow {
+  left: -6px;
+  margin-top: -6px;
+}
+
+.tour-root--paused .tour-arrow {
+  display: none;
+}
+
+.tour-step-count {
+  margin: 0 0 var(--space-1);
+  color: var(--text-secondary);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tour-title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  line-height: var(--leading-snug);
+}
+
+.tour-title:focus-visible {
+  outline: none;
+}
+
+.tour-body {
+  margin: 0 0 var(--space-4);
+  color: var(--text-secondary);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+}
+
+.tour-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.tour-nav-buttons {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.tour-actions button {
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  font-weight: var(--weight-semibold);
+}
+
+.tour-skip,
+.tour-back {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.tour-next {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+/* Visually hidden, still announced. */
+.tour-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-hole,
+  .tour-tip {
+    transition: none;
+  }
+}
+
+/* Target taller than the space around it -- the tip detaches and centres. */
+.tour-tip[data-placement="float"] .tour-arrow {
+  display: none;
+}

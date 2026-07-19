@@ -98,7 +98,7 @@ SCREENS = {
     },
     "mobile-family": {
         "path": "/?preview=1&tab=family",
-        "size": (390, 1200),
+        "size": (390, 1700),
         "reference": REFERENCE_DIR / "mobile-family.png",
         "threshold": 90.0,
     },
