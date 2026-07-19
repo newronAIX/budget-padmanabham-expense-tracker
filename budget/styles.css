@@ -4639,3 +4639,11 @@ summary:focus-visible,
 .goal-card-unset .goal-card-head {
   margin-bottom: 0;
 }
+
+/* With no tracked categories there is no list above it, so the divider and the
+   space it separated are both unnecessary. */
+.goal-untracked-only {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}

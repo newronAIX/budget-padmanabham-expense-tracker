@@ -223,7 +223,10 @@
         name,
         scope: "EXPENSE",
         color: COLORS[index % COLORS.length],
-        monthly_limit: index === 0 ? 55000 : index === 6 ? 16000 : 0
+        // No category ships with a limit. Seeded categories are created with
+        // monthly_limit 0 for real families, and the demo data must match that
+        // or the Goals screen shows limits nobody set.
+        monthly_limit: 0
       })),
       ...INCOME_DEFAULTS.map((name, index) => ({
         id: `c-inc-${index}`,
@@ -1275,8 +1278,18 @@
     const members = totalsBy(list, (e) => e.person_id, (e) => personName(e.person_id), (e) => personColor(e.person_id));
     const categories = totalsBy(list, (e) => e.category_id || "none", (e) => categoryName(e.category_id), (e) => categoryColor(e.category_id));
     const topCategory = categories[0]?.name || "None";
+    // Exactly one of these three is selected, derived from a single expression.
+    // Previously "This month"/"Previous" were derived from the DATES while
+    // "Custom" was derived from state.rangeMode. Clicking Custom sets the mode
+    // but leaves the dates at full-month bounds, so the date-derived tab stayed
+    // lit too and two tabs appeared selected at once.
     const hasCustomRange = start !== monthStart(month) || end !== monthEnd(month);
-    const showCustomDates = state.rangeMode === "custom" || hasCustomRange;
+    const activeRange = state.rangeMode === "custom" || hasCustomRange
+      ? "custom"
+      : month === currentMonth()
+      ? "month"
+      : "previous";
+    const showCustomDates = activeRange === "custom";
     return `
       <section class="all-expenses-screen">
         <header class="all-expenses-header">
@@ -1293,9 +1306,9 @@
         </header>
 
         <div class="expense-period-tabs" role="group" aria-label="Expense date range">
-          <button class="${!hasCustomRange && month === currentMonth() ? "active" : ""}" type="button" data-month-current>This month</button>
-          <button class="${!hasCustomRange && month !== currentMonth() ? "active" : ""}" type="button" data-month-shift="-1">Previous</button>
-          <button class="${showCustomDates ? "active" : ""}" type="button" data-expense-custom>Custom</button>
+          <button class="${activeRange === "month" ? "active" : ""}" type="button" aria-pressed="${activeRange === "month"}" data-month-current>This month</button>
+          <button class="${activeRange === "previous" ? "active" : ""}" type="button" aria-pressed="${activeRange === "previous"}" data-month-shift="-1">Previous</button>
+          <button class="${activeRange === "custom" ? "active" : ""}" type="button" aria-pressed="${activeRange === "custom"}" data-expense-custom>Custom</button>
         </div>
 
         ${showCustomDates ? `
@@ -2080,10 +2093,14 @@
           <div class="goal-limit-list">
             ${data.tracked.map(goalLimitRow).join("")}
           </div>
-        ` : `<p class="muted">No category has a limit yet.</p>`}
+        ` : ""}
         ${data.untracked.length ? `
-          <div class="goal-untracked">
-            <p>No limit set yet — these are not being tracked:</p>
+          <div class="goal-untracked${data.tracked.length ? "" : " goal-untracked-only"}">
+            <!-- With nothing tracked, the card subtitle already says to set a
+                 limit, so repeating "no limit set yet" here just says it twice. -->
+            <p>${data.tracked.length
+              ? "No limit set yet — these are not being tracked:"
+              : `${isOwner ? "Tap Edit to set a limit on any of these:" : "Nothing is being tracked yet:"}`}</p>
             <div class="goal-untracked-chips">
               ${data.untracked.map((row) => `<span class="goal-untracked-chip">${escapeHtml(row.name)}${row.spent ? ` · ${money(row.spent)}` : ""}</span>`).join("")}
             </div>

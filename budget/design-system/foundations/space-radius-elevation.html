@@ -4649,6 +4649,14 @@ summary:focus-visible,
   margin-bottom: 0;
 }
 
+/* With no tracked categories there is no list above it, so the divider and the
+   space it separated are both unnecessary. */
+.goal-untracked-only {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
 
   .ds-page { padding: 24px; max-width: 1180px; margin: 0 auto; }
   .ds-head { margin: 0 0 4px; font-size: 24px; font-weight: 700; }
