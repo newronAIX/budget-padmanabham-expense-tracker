@@ -1121,7 +1121,7 @@
             <small>${expenseUsed || 0}% of monthly budget used</small>
           </div>
           <b>₹</b>
-          <i style="width:${Math.max(5, expenseUsed)}%"></i>
+          <i class="${expenseUsed >= 100 ? "over" : expenseUsed >= 80 ? "near" : ""}" style="width:${Math.min(100, Math.max(5, expenseUsed))}%"></i>
         </article>
         <article class="finance-summary-card card savings-summary">
           <div>
@@ -1136,7 +1136,7 @@
         <h2>Budget Status</h2>
         <div class="status-grid">
           ${state.preview ? `
-            <article class="status-card warn">
+            <article class="status-card ${spend > budget && budget ? "warn" : "ok"}">
               <span>Dining</span>
               <strong>${spend > budget && budget ? `Over ${money(spend - budget)}` : "Within limit"}</strong>
             </article>

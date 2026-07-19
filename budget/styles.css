@@ -879,15 +879,21 @@ button {
   font-weight: var(--weight-bold);
 }
 
-.finance-summary-card b {
+/* Direct child only. As a descendant selector this also captured <b> used for
+   emphasis inside the caption, painting a 38px badge behind inline text. */
+.finance-summary-card > b {
   display: grid;
   place-items: center;
   width: 38px;
   height: 38px;
-  border-radius: 9px;
+  border-radius: var(--radius-lg);
   background: var(--wash);
   color: var(--primary);
-  font-size: 18px;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+}
+
+.finance-summary-card small b {
   font-weight: var(--weight-bold);
 }
 
@@ -899,8 +905,25 @@ button {
   display: block;
   height: 4px;
   max-width: calc(100% - 24px);
-  border-radius: 999px;
-  background: #a03b33;
+  border-radius: var(--radius-pill);
+  /* Reflects how much of the budget is used. This was a flat red, so a
+     comfortable 65% looked identical to being over budget. */
+  background: var(--accent);
+  transition: background-color var(--dur-base) var(--ease-standard);
+}
+
+.finance-summary-card i.near {
+  background: var(--warning);
+}
+
+.finance-summary-card i.over {
+  background: var(--critical);
+}
+
+/* The bar is absolutely positioned at bottom:12px, so without reserved space it
+   is painted straight through the caption once content outgrows min-height. */
+.expense-summary {
+  padding-bottom: 24px;
 }
 
 .budget-status-block {
@@ -1020,6 +1043,133 @@ button {
   min-width: 44px;
   background: var(--wash);
   color: var(--ink);
+}
+
+/* --------------------------------------------------------------------------
+   Interaction states
+
+   The file previously had zero :hover and zero :focus-visible rules, so nothing
+   responded to a cursor and keyboard users had no visible focus anywhere except
+   text inputs. Grouped here rather than scattered so every control picks them up.
+   -------------------------------------------------------------------------- */
+.primary,
+.secondary,
+.danger,
+.text-button,
+.icon-button,
+.compact,
+.button-link,
+.icon-action,
+.switch-action,
+.side-link,
+.activity-link,
+.floating-add,
+.bottom-nav button,
+.segmented button,
+.insight-tabs button,
+.month-switcher button,
+.expense-period-tabs button,
+.quick-picks button,
+.sort-pill {
+  transition:
+    background-color var(--dur-fast) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard),
+    transform var(--dur-instant) var(--ease-standard);
+}
+
+/* Hover is opt-in per input type: on touch it sticks after tap, which reads as
+   a stuck selection. */
+@media (hover: hover) and (pointer: fine) {
+  .primary:hover {
+    background: var(--accent-strong);
+  }
+
+  .secondary:hover,
+  .icon-button:hover,
+  .icon-action:hover,
+  .compact:hover,
+  .segmented button:hover,
+  .insight-tabs button:hover,
+  .month-switcher button:hover,
+  .expense-period-tabs button:hover,
+  .quick-picks button:hover,
+  .sort-pill:hover {
+    background: var(--bg-accent-tint);
+  }
+
+  .text-button:hover,
+  .button-link:hover,
+  .activity-link:hover {
+    color: var(--accent-strong);
+    text-decoration: underline;
+  }
+
+  .danger:hover {
+    background: #ffe3df;
+  }
+
+  .side-link:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: var(--text-on-accent);
+  }
+
+  .floating-add:hover {
+    box-shadow: var(--elev-3);
+    transform: translateY(-1px);
+  }
+
+  .item:hover,
+  .activity-row:hover,
+  .expense-item:hover {
+    background: var(--bg-subtle);
+  }
+}
+
+.primary:active,
+.secondary:active,
+.danger:active,
+.icon-button:active,
+.icon-action:active,
+.compact:active,
+.floating-add:active,
+.bottom-nav button:active {
+  transform: translateY(1px);
+}
+
+/* :focus-visible rather than :focus so a mouse click does not leave a ring. */
+.primary:focus-visible,
+.secondary:focus-visible,
+.danger:focus-visible,
+.text-button:focus-visible,
+.icon-button:focus-visible,
+.compact:focus-visible,
+.button-link:focus-visible,
+.icon-action:focus-visible,
+.switch-action:focus-visible,
+.side-link:focus-visible,
+.activity-link:focus-visible,
+.floating-add:focus-visible,
+.bottom-nav button:focus-visible,
+.segmented button:focus-visible,
+.insight-tabs button:focus-visible,
+.month-switcher button:focus-visible,
+.expense-period-tabs button:focus-visible,
+.quick-picks button:focus-visible,
+.sort-pill:focus-visible,
+a:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* On the dark green sidebar and FAB a green ring is invisible. */
+.side-link:focus-visible,
+.floating-add:focus-visible {
+  outline-color: var(--text-on-accent);
 }
 
 .wide {
@@ -2015,8 +2165,10 @@ button {
   background: var(--secondary);
 }
 
+/* Was var(--danger), which is defined nowhere -- the declaration was invalid at
+   computed-value time, so an over-budget meter bar rendered fully transparent. */
 .budget-meter.warn b {
-  background: var(--danger);
+  background: var(--critical);
 }
 
 .category-limit-panel {
