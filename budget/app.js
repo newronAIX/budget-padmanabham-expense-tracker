@@ -77,6 +77,7 @@
   let refreshAfterModal = false;
   const analyticsSnapshotMonths = new Set();
   let privacyMigrationRunning = false;
+  let viewportWatcherInstalled = false;
 
   const todayKey = () => {
     if (frozenToday) return frozenToday;
@@ -422,6 +423,29 @@
     refreshInterval = window.setInterval(() => {
       if (state.user && !document.hidden) queueRefresh(0);
     }, 20000);
+    installViewportWatcher();
+  }
+
+  // Five screens branch on isDesktopMode() into entirely different render
+  // functions, but nothing re-rendered on resize -- rotating a tablet across the
+  // breakpoint left desktop markup under mobile styles until an unrelated render.
+  // Only re-renders when the breakpoint actually flips, not on every resize pixel.
+  function installViewportWatcher() {
+    if (viewportWatcherInstalled) return;
+    viewportWatcherInstalled = true;
+    let wasDesktop = isDesktopMode();
+    let resizeTimer = 0;
+    const check = () => {
+      const isDesktop = isDesktopMode();
+      if (isDesktop === wasDesktop) return;
+      wasDesktop = isDesktop;
+      render();
+    };
+    window.addEventListener("resize", () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(check, 150);
+    });
+    window.addEventListener("orientationchange", check);
   }
 
   function queueRefresh(delay = 400) {
@@ -535,6 +559,13 @@
       .slice(0, limit);
   }
 
+  // A recurring income counts unless it has been explicitly paused. Treat undefined
+  // as active: filters used `!== false` while display used plain truthiness, so an
+  // undefined row was counted in the monthly total yet drawn as Paused.
+  function isIncomeActive(income) {
+    return income?.is_active !== false;
+  }
+
   function monthlyIncome() {
     return incomeForMonth(currentMonth());
   }
@@ -622,7 +653,7 @@
   }
 
   function incomeForMonth(_key = currentMonth()) {
-    return state.incomes.filter((income) => income.is_active !== false && !income.locked).reduce((sum, income) => sum + Number(income.amount || 0), 0);
+    return state.incomes.filter((income) => isIncomeActive(income) && !income.locked).reduce((sum, income) => sum + Number(income.amount || 0), 0);
   }
 
   function snapshotPayloadForMonth(key) {
@@ -1676,20 +1707,20 @@
     if (state.preview) return previewMobileIncomeScreen();
     const rows = state.incomes;
     const analytics = analyticsForMonth(currentMonth());
-    const activeRows = rows.filter((income) => income.is_active !== false && !income.locked);
+    const activeRows = rows.filter((income) => isIncomeActive(income) && !income.locked);
     const activePercent = rows.length ? Math.round((activeRows.length / rows.length) * 100) : 0;
     return `
       <section class="mobile-income-hero">
         <span>Total Recurring Monthly Income</span>
         <strong>${money(monthlyIncome())}</strong>
         <div class="income-hero-stats">
-          <div><span>Active streams</span><b>${String(activeRows.length).padStart(2, "0")}</b></div>
+          <div><span>Still arriving</span><b>${String(activeRows.length).padStart(2, "0")}</b></div>
           <div><span>Next deposit</span><b>${escapeHtml(nextDepositLabel(activeRows))}</b></div>
         </div>
       </section>
       <section class="income-kpi-grid">
         <article class="card"><b>↗</b><strong>${escapeHtml(shortTrendValue(analytics.previous.income_change_percent))}</strong><span>v/s Last Month</span></article>
-        <article class="card"><b>◎</b><strong>${activePercent}%</strong><span>Active</span></article>
+        <article class="card"><b>◎</b><strong>${activePercent}%</strong><span>Still arriving</span></article>
         <article class="card"><b>□</b><strong>Monthly</strong><span>Cycle</span></article>
       </section>
       <section class="mobile-list-title"><h2>Recurring Income</h2><button>≡ Filter</button></section>
@@ -1706,7 +1737,7 @@
         <span>Total Recurring Monthly Income</span>
         <strong>${money(monthlyIncome())}</strong>
         <div class="income-hero-stats">
-          <div><span>Active streams</span><b>${String(rows.filter((income) => income.is_active).length).padStart(2, "0")}</b></div>
+          <div><span>Still arriving</span><b>${String(rows.filter(isIncomeActive).length).padStart(2, "0")}</b></div>
           <div><span>Next deposit</span><b>Oct 01</b></div>
         </div>
       </section>
@@ -1752,7 +1783,9 @@
         <span class="avatar">${String(income.title).slice(0, 1).toUpperCase()}</span>
         <div class="item-main">
           <strong>${escapeHtml(income.title)}</strong>
-          <span>${escapeHtml(category)} · Monthly</span>
+          <!-- Compact row: only label the exceptional state. "Receiving now" on
+               every active row wrapped to two lines and said nothing useful. -->
+          <span>${escapeHtml(category)}${isIncomeActive(income) ? "" : " · Paused"}</span>
         </div>
         <strong class="mobile-income-amount">${money(income.amount)}</strong>
         ${incomeActions(income)}
@@ -1767,7 +1800,7 @@
         <span class="avatar">${String(income.title).slice(0, 1).toUpperCase()}</span>
         <div class="item-main">
           <strong>${escapeHtml(income.title)}</strong>
-          <span>${escapeHtml(category)} · Day ${income.day_of_month} · ${income.is_active ? "Active" : "Paused"}</span>
+          <span>${escapeHtml(category)} · Arrives day ${escapeHtml(String(income.day_of_month ?? 1))} · ${isIncomeActive(income) ? "Receiving now" : "Paused"}</span>
         </div>
         <div class="item-side">
           <strong>${money(income.amount)}</strong>
@@ -1786,7 +1819,7 @@
         <button class="icon-action" data-delete-income="${income.id}" aria-label="Delete ${escapeHtml(income.title)}" title="Delete">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 14h10l1-14"></path></svg>
         </button>
-        <button class="switch-action ${income.is_active ? "on" : ""}" data-toggle-income="${income.id}" aria-label="${income.is_active ? "Pause" : "Resume"} ${escapeHtml(income.title)}"></button>
+        <button class="switch-action ${isIncomeActive(income) ? "on" : ""}" data-toggle-income="${income.id}" role="switch" aria-checked="${isIncomeActive(income)}" aria-label="${isIncomeActive(income) ? `Stop counting ${escapeHtml(income.title)} — it is no longer arriving` : `Start counting ${escapeHtml(income.title)} again`}"></button>
       </div>
     `;
   }
@@ -2094,7 +2127,7 @@
         <label class="field">Amount<input class="input" name="amount" type="number" min="1" step="1" value="${escapeHtml(income?.amount || "")}" required></label>
         <label class="field">Category<select class="input" name="category_id">${activeIncomeCategories().map((c) => `<option value="${c.id}" ${income?.category_id === c.id ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select></label>
         <label class="field">Day of month<input class="input" name="day_of_month" type="number" min="1" max="28" value="${escapeHtml(income?.day_of_month || 1)}"></label>
-        <label class="check"><input type="checkbox" name="is_active" ${income?.is_active === false ? "" : "checked"}> Active income</label>
+        <label class="check"><input type="checkbox" name="is_active" ${income?.is_active === false ? "" : "checked"}> I am still receiving this<small>Untick if this income has stopped, for example a job you left. It stops counting toward your monthly total, and past records stay.</small></label>
         <button class="primary wide" type="submit">Save income</button>
       </form>
     `;
@@ -2397,7 +2430,9 @@
   }
 
   function isDesktopMode() {
-    return window.matchMedia("(min-width: 900px)").matches;
+    // 901, not 900. Every CSS override is `max-width: 900px`, so at exactly 900px
+    // both matched: JS emitted desktop markup while CSS applied mobile rules.
+    return window.matchMedia("(min-width: 901px)").matches;
   }
 
   function randomBase64(byteLength) {
@@ -3023,7 +3058,7 @@
     const income = state.incomes.find((item) => item.id === id);
     if (!income) return;
     if (state.demo) {
-      state.incomes = state.incomes.map((item) => item.id === id ? { ...item, is_active: !item.is_active } : item);
+      state.incomes = state.incomes.map((item) => item.id === id ? { ...item, is_active: !isIncomeActive(item) } : item);
       writeDemo();
       render();
       return;
@@ -3034,7 +3069,7 @@
       amount: Number(income.amount || 0),
       day_of_month: Number(income.day_of_month || 1),
       category_id: income.category_id || null,
-      is_active: !income.is_active,
+      is_active: !isIncomeActive(income),
       created_by: income.created_by || state.user.id
     };
     const encryptedPayload = await encryptedIncomePayload(payload);
@@ -3287,7 +3322,7 @@
           amount: Number(income.amount || 0),
           day_of_month: Number(income.day_of_month || 1),
           category_id: income.category_id || null,
-          is_active: income.is_active !== false,
+          is_active: isIncomeActive(income),
           created_by: income.created_by || state.user.id
         };
         const { error } = await client.from("budget_incomes").update({
