@@ -5,3 +5,7 @@ local.properties
 /build/
 /app/build/
 .DS_Store
+
+# Python bytecode from the test scripts
+__pycache__/
+*.pyc
