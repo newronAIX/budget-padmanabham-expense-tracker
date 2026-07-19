@@ -1,17 +1,173 @@
+/* #region ds:tokens */
+/* ==========================================================================
+   Design tokens
+   --------------------------------------------------------------------------
+   Two tiers, one rule that makes the whole thing work:
+
+     Tier 1  --ref-*   Raw values. Referenced ONLY inside this :root block.
+     Tier 2  semantic  What every rule in the rest of the file uses.
+
+   INVARIANT: no rule outside :root may reference a --ref-* token.
+   Keeping that true is what makes dark mode a ~40 line diff instead of a
+   3600 line one -- you redefine tier 2 and every rule below follows.
+   ========================================================================== */
 :root {
-  --primary: #1B4332;
-  --primary-2: #0f2f22;
-  --secondary: #F5B700;
-  --tertiary: #EE6055;
-  --blue: #3A7CA5;
-  --ink: #212529;
-  --muted: #6f756f;
-  --line: #dfe3dc;
-  --paper: #F9F9F4;
-  --panel: #ffffff;
-  --wash: #eef1e9;
-  --shadow: 0 18px 44px rgba(17, 36, 27, 0.11);
+  /* --- Tier 1: primitives ------------------------------------------------ */
+
+  /* Brand green */
+  --ref-green-900: #0f2f22;
+  --ref-green-700: #1B4332;
+  --ref-green-100: #dceee5;
+  --ref-green-050: #eef1e9;
+
+  /* Accents */
+  --ref-amber-500: #F5B700;
+  --ref-amber-900: #6b4b00;
+  --ref-coral-500: #EE6055;
+  --ref-coral-800: #9a2219;
+  --ref-blue-500: #3A7CA5;
+
+  /* Neutrals */
+  --ref-gray-950: #212529;
+  --ref-gray-600: #6f756f;
+  --ref-gray-300: #dfe3dc;
+  --ref-gray-050: #F9F9F4;
+  --ref-white: #ffffff;
+
+  /* Category swatches. These are mirrored by COLORS in app.js, which writes
+     them into inline style attributes -- change one, change both. */
+  --ref-cat-1: #1B4332;
+  --ref-cat-2: #F5B700;
+  --ref-cat-3: #EE6055;
+  --ref-cat-4: #3A7CA5;
+  --ref-cat-5: #7D5BA6;
+  --ref-cat-6: #2A9D8F;
+  --ref-cat-7: #9B5D3A;
+  --ref-cat-8: #6C757D;
+
+  /* --- Tier 2: semantic colour ------------------------------------------ */
+  --bg-canvas: var(--ref-gray-050);
+  --bg-surface: var(--ref-white);
+  --bg-subtle: var(--ref-green-050);
+  --bg-accent-tint: var(--ref-green-100);
+  --bg-inverse: var(--ref-green-700);
+  --bg-grid-line: rgba(27, 67, 50, 0.04);
+
+  --text-primary: var(--ref-gray-950);
+  --text-secondary: var(--ref-gray-600);
+  --text-on-accent: var(--ref-white);
+  --text-accent: var(--ref-green-700);
+
+  --border-subtle: var(--ref-gray-300);
+  --border-focus: var(--ref-green-700);
+
+  --accent: var(--ref-green-700);
+  --accent-strong: var(--ref-green-900);
+  --accent-fg: var(--ref-white);
+
+  --positive: var(--ref-green-700);
+  --warning: var(--ref-amber-500);
+  --critical: var(--ref-coral-800);
+  --info: var(--ref-blue-500);
+
+  /* --- Spacing: 4px base ------------------------------------------------- */
+  --space-0: 0;
+  --space-px: 1px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* --- Radius: scales with element size --------------------------------- */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 24px;
+  --radius-pill: 999px;
+  --radius-circle: 50%;
+
+  /* --- Elevation: tinted toward the brand green, not neutral grey -------- */
+  --elev-0: none;
+  --elev-1: 0 1px 2px rgba(17, 36, 27, 0.06), 0 2px 6px rgba(17, 36, 27, 0.04);
+  --elev-2: 0 18px 44px rgba(17, 36, 27, 0.11);
+  --elev-3: 0 24px 60px rgba(17, 36, 27, 0.18);
+
+  /* --- Typography -------------------------------------------------------- */
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 15px;
+  --text-md: 16px;
+  --text-lg: 18px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 28px;
+  --text-4xl: 34px;
+  --text-5xl: 42px;
+
+  --leading-tight: 1.1;
+  --leading-snug: 1.3;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.65;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --weight-black: 900;
+
+  /* --- Motion ------------------------------------------------------------ */
+  --dur-instant: 80ms;
+  --dur-fast: 140ms;
+  --dur-base: 220ms;
+  --dur-slow: 320ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* --- Z-index: the tour must outrank the modal it explains -------------- */
+  --z-base: 0;
+  --z-sticky: 10;
+  --z-nav: 20;
+  --z-fab: 30;
+  --z-backdrop: 40;
+  --z-modal: 50;
+  --z-tour: 60;
+
+  /* --- Legacy aliases ----------------------------------------------------
+     The original names, now resolving through the semantic layer so the
+     existing rules below keep working untouched. Later stages retire these
+     call site by call site; they are not for new code. */
+  --primary: var(--accent);
+  --primary-2: var(--accent-strong);
+  --secondary: var(--warning);
+  --tertiary: var(--ref-coral-500);
+  --blue: var(--info);
+  --ink: var(--text-primary);
+  --muted: var(--text-secondary);
+  --line: var(--border-subtle);
+  --paper: var(--bg-canvas);
+  --panel: var(--bg-surface);
+  --wash: var(--bg-subtle);
+  --shadow: var(--elev-2);
 }
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-instant: 0ms;
+    --dur-fast: 0ms;
+    --dur-base: 0ms;
+    --dur-slow: 0ms;
+  }
+}
+/* #endregion ds:tokens */
 
 * {
   box-sizing: border-box;
@@ -96,7 +252,7 @@ button {
   background: var(--primary);
   color: white;
   font-size: 25px;
-  font-weight: 900;
+  font-weight: var(--weight-bold);
 }
 
 .brand h1 {
@@ -136,7 +292,7 @@ button {
   background: var(--wash);
   color: var(--primary);
   font-size: 12px;
-  font-weight: 900;
+  font-weight: var(--weight-bold);
 }
 
 .topbar-chip.active {
@@ -194,7 +350,7 @@ button {
   background: transparent;
   color: #7b5600;
   font-size: 12px;
-  font-weight: 950;
+  font-weight: var(--weight-bold);
   letter-spacing: 0;
 }
 
@@ -228,7 +384,7 @@ button {
   height: 44px;
   border-radius: 10px;
   font-size: 17px;
-  font-weight: 950;
+  font-weight: var(--weight-bold);
 }
 
 .activity-main {
@@ -253,7 +409,7 @@ button {
 .activity-main span {
   color: #555b55;
   font-size: 13px;
-  font-weight: 750;
+  font-weight: var(--weight-semibold);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -365,7 +521,7 @@ button {
   border-radius: 8px;
   padding: 0 13px;
   text-align: left;
-  font-weight: 800;
+  font-weight: var(--weight-semibold);
 }
 
 .side-link {
@@ -416,7 +572,7 @@ button {
   border-radius: 8px;
   background: var(--wash);
   text-align: left;
-  font-weight: 800;
+  font-weight: var(--weight-semibold);
 }
 
 .terms-check input {
@@ -448,7 +604,7 @@ button {
   border-radius: 8px;
   background: var(--primary);
   color: white;
-  font-weight: 900;
+  font-weight: var(--weight-bold);
 }
 
 .g-icon {
@@ -459,7 +615,7 @@ button {
   border-radius: 50%;
   background: white;
   color: #4285F4;
-  font-weight: 950;
+  font-weight: var(--weight-bold);
 }
 
 .setup-grid,
@@ -528,7 +684,7 @@ button {
   border-radius: 50%;
   background: var(--wash);
   color: var(--primary);
-  font-weight: 950;
+  font-weight: var(--weight-bold);
 }
 
 .create-choice {
@@ -554,7 +710,7 @@ button {
   display: block;
   color: var(--muted);
   font-size: 12px;
-  font-weight: 900;
+  font-weight: var(--weight-bold);
   text-transform: uppercase;
 }
 
@@ -644,7 +800,7 @@ button {
 
 .period-row span {
   font-size: 12px;
-  font-weight: 950;
+  font-weight: var(--weight-bold);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -664,7 +820,7 @@ button {
   justify-self: end;
   font-style: normal;
   font-size: 12px;
-  font-weight: 950;
+  font-weight: var(--weight-bold);
 }
 
 .home-balance-card span,
@@ -672,7 +828,7 @@ button {
   display: block;
   color: rgba(255, 255, 255, 0.78);
   font-size: 12px;
-  font-weight: 800;
+  font-weight: var(--weight-semibold);
 }
 
 .home-balance-card strong {
@@ -705,7 +861,7 @@ button {
   display: block;
   color: var(--muted);
   font-size: 11px;
-  font-weight: 950;
+  font-weight: var(--weight-bold);
   text-transform: uppercase;
 }
 
@@ -720,7 +876,7 @@ button {
 .finance-summary-card small {
   color: var(--muted);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 
 .finance-summary-card b {
@@ -732,7 +888,7 @@ button {
   background: var(--wash);
   color: var(--primary);
   font-size: 18px;
-  font-weight: 950;
+  font-weight: var(--weight-bold);
 }
 
 .finance-summary-card i {
@@ -775,7 +931,7 @@ button {
 .status-card span {
   color: var(--ink);
   font-size: 12px;
-  font-weight: 900;
+  font-weight: var(--weight-bold);
 }
 
 .status-card strong {
@@ -803,7 +959,7 @@ button {
   background: #dceee5;
   color: var(--primary);
   font-size: 11px;
-  font-weight: 900;
+  font-weight: var(--weight-bold);
   text-transform: uppercase;
 }
 
@@ -823,7 +979,7 @@ button {
   margin: 5px 0 0;
   color: var(--muted);
   font-size: 14px;
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 
 .primary,
@@ -836,7 +992,7 @@ button {
   min-height: 44px;
   border-radius: 8px;
   padding: 0 14px;
-  font-weight: 900;
+  font-weight: var(--weight-bold);
 }
 
 .primary {
@@ -890,7 +1046,7 @@ button {
   display: grid;
   gap: 7px;
   margin-bottom: 14px;
-  font-weight: 850;
+  font-weight: var(--weight-semibold);
   --field-accent: var(--primary);
   --field-bg: #ffffff;
 }
@@ -928,7 +1084,7 @@ button {
 
 .field small {
   color: var(--muted);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 .input,
@@ -946,7 +1102,7 @@ button {
 .amount-input {
   min-height: 64px;
   font-size: 30px;
-  font-weight: 900;
+  font-weight: var(--weight-bold);
   letter-spacing: 0;
 }
 
@@ -959,7 +1115,7 @@ button {
 .shortcut-group > span {
   color: var(--muted);
   font-size: 13px;
-  font-weight: 900;
+  font-weight: var(--weight-bold);
 }
 
 .quick-picks {
@@ -975,7 +1131,7 @@ button {
   color: var(--primary);
   border: 1px solid #cfe0d1;
   border-left: 5px solid var(--chip-color, var(--primary));
-  font-weight: 900;
+  font-weight: var(--weight-bold);
   line-height: 1.15;
   overflow-wrap: anywhere;
   padding: 7px 8px;
@@ -1021,7 +1177,7 @@ button {
   border-radius: 50%;
   background: #dceee5;
   color: var(--primary);
-  font-weight: 950;
+  font-weight: var(--weight-bold);
 }
 
 .swatch {
@@ -1065,7 +1221,7 @@ button {
   background: var(--wash);
   color: var(--ink);
   font-size: 12px;
-  font-weight: 850;
+  font-weight: var(--weight-semibold);
 }
 
 .item-actions .icon-action {
@@ -1307,7 +1463,7 @@ button {
   margin: 4px 0 0;
   color: var(--muted);
   font-size: 14px;
-  font-weight: 750;
+  font-weight: var(--weight-semibold);
 }
 
 .icon-only {
@@ -1356,7 +1512,7 @@ button {
   background: transparent;
   color: var(--muted);
   font-size: 13px;
-  font-weight: 950;
+  font-weight: var(--weight-bold);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1382,7 +1538,7 @@ button {
   background: white;
   color: var(--muted);
   font-size: 12px;
-  font-weight: 950;
+  font-weight: var(--weight-bold);
   text-transform: uppercase;
 }
 
@@ -1392,7 +1548,7 @@ button {
   background: transparent;
   color: var(--ink);
   font-size: 15px;
-  font-weight: 850;
+  font-weight: var(--weight-semibold);
 }
 
 .expense-stat-strip {
@@ -1416,7 +1572,7 @@ button {
   overflow: hidden;
   color: var(--muted);
   font-size: 11px;
-  font-weight: 950;
+  font-weight: var(--weight-bold);
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
@@ -1428,7 +1584,7 @@ button {
   overflow: hidden;
   color: var(--ink);
   font-size: 22px;
-  font-weight: 950;
+  font-weight: var(--weight-bold);
   line-height: 1.05;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1461,7 +1617,7 @@ button {
 .sort-pill span {
   color: var(--muted);
   font-size: 12px;
-  font-weight: 950;
+  font-weight: var(--weight-bold);
 }
 
 .sort-pill select {
@@ -1471,7 +1627,7 @@ button {
   background: transparent;
   color: var(--ink);
   font-size: 14px;
-  font-weight: 900;
+  font-weight: var(--weight-bold);
 }
 
 .expense-search {
@@ -1498,7 +1654,7 @@ button {
   background: transparent;
   color: var(--ink);
   font-size: 14px;
-  font-weight: 800;
+  font-weight: var(--weight-semibold);
 }
 
 .stitch-analysis-list {
@@ -1519,7 +1675,7 @@ button {
 }
 
 .stitch-analysis-list .analysis-row span {
-  font-weight: 850;
+  font-weight: var(--weight-semibold);
 }
 
 .transaction-section-title {
@@ -1530,7 +1686,7 @@ button {
   margin-top: 2px;
   color: var(--muted);
   font-size: 12px;
-  font-weight: 950;
+  font-weight: var(--weight-bold);
   text-transform: uppercase;
 }
 
@@ -1577,7 +1733,7 @@ button {
 .ledger-amount {
   color: var(--ink);
   font-size: 15px;
-  font-weight: 950;
+  font-weight: var(--weight-bold);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -1764,7 +1920,7 @@ button {
   margin-bottom: 4px;
   color: var(--muted);
   font-size: 12px;
-  font-weight: 950;
+  font-weight: var(--weight-bold);
   text-transform: uppercase;
 }
 
@@ -1799,7 +1955,7 @@ button {
   margin-bottom: 7px;
   color: var(--muted);
   font-size: 11px;
-  font-weight: 950;
+  font-weight: var(--weight-bold);
   text-transform: uppercase;
 }
 
@@ -1808,7 +1964,7 @@ button {
   overflow: hidden;
   color: var(--ink);
   font-size: 21px;
-  font-weight: 950;
+  font-weight: var(--weight-bold);
   line-height: 1.05;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1829,7 +1985,7 @@ button {
   justify-content: space-between;
   gap: 12px;
   font-size: 15px;
-  font-weight: 900;
+  font-weight: var(--weight-bold);
 }
 
 .budget-meter span {
@@ -1882,7 +2038,7 @@ button {
   display: block;
   color: var(--ink);
   font-size: 22px;
-  font-weight: 950;
+  font-weight: var(--weight-bold);
   line-height: 1.1;
 }
 
@@ -1891,7 +2047,7 @@ button {
   margin-top: 3px;
   overflow: hidden;
   color: var(--muted);
-  font-weight: 800;
+  font-weight: var(--weight-semibold);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1934,7 +2090,7 @@ button {
 
 .limit-row small {
   color: var(--muted);
-  font-weight: 750;
+  font-weight: var(--weight-semibold);
 }
 
 .family-plan-sheet {
@@ -1950,7 +2106,7 @@ button {
   display: block;
   margin-top: 8px;
   color: var(--muted);
-  font-weight: 750;
+  font-weight: var(--weight-semibold);
 }
 
 .privacy-confirm-line {
@@ -1960,7 +2116,7 @@ button {
   min-height: 38px;
   color: var(--primary);
   font-size: 13px;
-  font-weight: 950;
+  font-weight: var(--weight-bold);
 }
 
 .category-limits-sheet {
@@ -2005,7 +2161,7 @@ button {
 .limit-edit-row label span {
   color: var(--muted);
   font-size: 12px;
-  font-weight: 800;
+  font-weight: var(--weight-semibold);
 }
 
 .limit-edit-row label {
@@ -2051,7 +2207,7 @@ button {
   min-height: 52px;
   border-radius: 8px;
   padding: 0 12px;
-  font-weight: 900;
+  font-weight: var(--weight-bold);
 }
 
 .month-switcher button:disabled {
@@ -2155,7 +2311,7 @@ button {
   border-radius: 6px;
   background: transparent;
   color: var(--muted);
-  font-weight: 900;
+  font-weight: var(--weight-bold);
 }
 
 .segmented button.active {
@@ -2180,7 +2336,7 @@ button {
   border-radius: 50%;
   background: var(--panel);
   text-align: center;
-  font-weight: 900;
+  font-weight: var(--weight-bold);
 }
 
 .empty {
@@ -2258,7 +2414,7 @@ button {
   background: #dceee5;
   color: var(--primary);
   font-size: 12px;
-  font-weight: 900;
+  font-weight: var(--weight-bold);
 }
 
 .lock-badge.locked {
@@ -2313,7 +2469,7 @@ button {
   border-radius: 8px;
   background: var(--wash);
   color: var(--ink);
-  font-weight: 900;
+  font-weight: var(--weight-bold);
 }
 
 .insight-tabs button.active {
@@ -2352,7 +2508,7 @@ button {
 .vertical-bar span {
   color: var(--muted);
   font-size: 11px;
-  font-weight: 800;
+  font-weight: var(--weight-semibold);
   text-align: center;
   white-space: nowrap;
 }
@@ -2381,7 +2537,7 @@ button {
   display: block;
   color: var(--ink);
   font-size: 12px;
-  font-weight: 950;
+  font-weight: var(--weight-bold);
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
@@ -2397,7 +2553,7 @@ button {
 .insight-mini small {
   color: var(--primary);
   font-size: 14px;
-  font-weight: 800;
+  font-weight: var(--weight-semibold);
 }
 
 .insight-mini i,
@@ -2440,7 +2596,7 @@ button {
 
 .chart-head span {
   font-size: 14px;
-  font-weight: 900;
+  font-weight: var(--weight-bold);
 }
 
 .trend-placeholder {
@@ -2555,7 +2711,7 @@ button {
   margin: 0;
   color: var(--primary);
   font-size: 18px;
-  font-weight: 800;
+  font-weight: var(--weight-semibold);
 }
 
 .member-card-list {
@@ -2607,7 +2763,7 @@ button {
   margin: 0;
   color: rgba(255, 255, 255, 0.58);
   font-size: 18px;
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 .invite-dark-card p {
@@ -2639,7 +2795,7 @@ button {
   padding: 0 10px;
   background: #0c3727;
   color: #d7eadf;
-  font-weight: 900;
+  font-weight: var(--weight-bold);
 }
 
 .share-invite-button {
@@ -2648,7 +2804,7 @@ button {
   background: var(--secondary);
   color: #6b4b00;
   font-size: 16px;
-  font-weight: 950;
+  font-weight: var(--weight-bold);
 }
 
 .owner-control-list {
@@ -2678,7 +2834,7 @@ button {
   border-radius: 8px;
   background: #eef1f6;
   color: var(--primary);
-  font-weight: 950;
+  font-weight: var(--weight-bold);
 }
 
 .owner-control-list div {
@@ -2719,7 +2875,7 @@ button {
   padding: 0 10px;
   background: var(--wash);
   color: var(--ink);
-  font-weight: 900;
+  font-weight: var(--weight-bold);
 }
 
 .danger-title {
@@ -2810,7 +2966,7 @@ button {
 
 .income-hero-stats b {
   font-size: 22px;
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 .income-kpi-grid {
@@ -2837,7 +2993,7 @@ button {
 
 .income-kpi-grid strong {
   font-size: 20px;
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 .income-kpi-grid span {
@@ -2857,7 +3013,7 @@ button {
   margin: 0;
   color: var(--primary);
   font-size: 22px;
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 .mobile-list-title button {
@@ -2921,7 +3077,7 @@ button {
 }
 
 .insight-row span:first-child {
-  font-weight: 800;
+  font-weight: var(--weight-semibold);
 }
 
 .check {
@@ -2930,7 +3086,7 @@ button {
   gap: 10px;
   min-height: 44px;
   margin-bottom: 14px;
-  font-weight: 850;
+  font-weight: var(--weight-semibold);
 }
 
 .modal-backdrop {
@@ -2994,7 +3150,7 @@ button {
   margin-bottom: 8px;
   color: var(--ink);
   font-size: 13px;
-  font-weight: 950;
+  font-weight: var(--weight-bold);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -3024,7 +3180,7 @@ button {
   background: white;
   color: var(--ink);
   font-size: 18px;
-  font-weight: 800;
+  font-weight: var(--weight-semibold);
 }
 
 .paid-by-options .selected span,
@@ -3310,7 +3466,7 @@ button {
     background: transparent;
     color: var(--ink);
     font-size: 13px;
-    font-weight: 950;
+    font-weight: var(--weight-bold);
     letter-spacing: 0.04em;
     text-transform: uppercase;
   }
@@ -3477,7 +3633,7 @@ button {
     border-radius: 8px;
     background: transparent;
     color: var(--muted);
-    font-weight: 900;
+    font-weight: var(--weight-bold);
   }
 
   .bottom-nav button span {
@@ -3488,7 +3644,7 @@ button {
   .bottom-nav button small {
     font-size: 9px;
     line-height: 1;
-    font-weight: 900;
+    font-weight: var(--weight-bold);
   }
 
   .bottom-nav button.active {
@@ -3511,7 +3667,7 @@ button {
     color: #271c00;
     box-shadow: 0 10px 20px rgba(117, 86, 0, 0.24);
     font-size: 28px;
-    font-weight: 600;
+    font-weight: var(--weight-semibold);
     line-height: 1;
   }
 
@@ -3552,7 +3708,7 @@ button {
     background: transparent;
     color: var(--ink);
     font-size: 34px;
-    font-weight: 400;
+    font-weight: var(--weight-regular);
   }
 
   .modal .input,
