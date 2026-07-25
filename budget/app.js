@@ -10,7 +10,19 @@
 
   const config = window.BUDGET_CONFIG || {};
   const params = new URLSearchParams(window.location.search);
-  const previewMode = params.get("preview") === "1";
+  // A demo session lasts as long as the tab does. Safari reloading the tab -- or a
+  // stray refresh mid-presentation -- drops the query string, and without this the
+  // presenter lands on the sign-in screen with no way back. Kept in sessionStorage
+  // so it dies with the tab and can never follow a real user into a real session.
+  const previewParam = params.get("preview") === "1";
+  let previewRemembered = false;
+  try {
+    if (previewParam) window.sessionStorage.setItem("bp_preview", "1");
+    previewRemembered = window.sessionStorage.getItem("bp_preview") === "1";
+  } catch {
+    previewRemembered = false;   // private mode / storage disabled
+  }
+  const previewMode = previewParam || previewRemembered;
   const visualMode = previewMode && params.get("visual") === "activity";
   const initialTab = ["dashboard", "expenses", "insights", "income", "categories", "family", "goals"].includes(params.get("tab"))
     ? params.get("tab")
@@ -890,7 +902,7 @@
         ${state.user ? `
           <div class="top-actions">
             ${state.family ? `<button class="topbar-chip ${state.tab === "family" ? "active" : ""}" data-tab="family">Fam</button>` : ""}
-            <button class="icon-button" data-action="signout" title="Sign out">↪</button>
+            ${state.preview ? "" : `<button class="icon-button" data-action="signout" title="Sign out">↪</button>`}
           </div>
         ` : ""}
       </header>
@@ -1925,8 +1937,9 @@
           ${goalsSummaryCard()}
           <hr>
           <button class="secondary wide" data-action="replay-tour">Show me around again</button>
+          ${state.preview ? "" : `
           <button class="danger wide" data-action="leave-family">Leave family</button>
-          <button class="secondary wide" data-action="signout">Sign out</button>
+          <button class="secondary wide" data-action="signout">Sign out</button>`}
         </aside>
       </section>
     `;
@@ -1966,7 +1979,7 @@
           <button data-action="rotate-invite"><strong>Rotate Invite Code</strong><span>Old code stops working</span></button>
           <button data-action="toggle-family-lock"><strong>${locked ? "Unlock Joining" : "Lock Joining"}</strong><span>${locked ? "Let people join with the code again" : "Nobody new can join, even with the code"}</span></button>
           <button data-action="replay-tour"><strong>Show Me Around Again</strong><span>Replay the quick tour</span></button>
-          <button data-action="leave-family"><strong>Leave Family</strong><span>Exit this family group</span></button>
+          ${state.preview ? "" : `<button data-action="leave-family"><strong>Leave Family</strong><span>Exit this family group</span></button>`}
         </div>
         <p class="version-line">Version 2.4.0 · Secured by Padmanabham Infrastructure</p>
       </section>
