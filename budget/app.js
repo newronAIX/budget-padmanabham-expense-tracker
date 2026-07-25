@@ -1041,6 +1041,7 @@
         ${mobileNavButton("dashboard", "⌂", "Home")}
         ${mobileNavButton("insights", "▤", "Insights")}
         ${mobileNavButton("income", "▣", "Income")}
+        ${mobileNavButton("categories", "◇", "Categories")}
         ${mobileNavButton("family", "☷", "Family")}
       </nav>
       <button class="floating-add" data-modal="expense" data-tour="fab" aria-label="Add expense">+</button>
@@ -1758,7 +1759,7 @@
         <article class="card"><b>◎</b><strong>${activePercent}%</strong><span>Still arriving</span></article>
         <article class="card"><b>□</b><strong>Monthly</strong><span>Cycle</span></article>
       </section>
-      <section class="mobile-list-title"><h2>Recurring Income</h2><button>≡ Filter</button></section>
+      <section class="mobile-list-title"><h2>Recurring Income</h2><button class="primary compact" data-modal="income">Add income</button></section>
       <section class="income-card-list">
         ${rows.map(mobileIncomeRow).join("")}
       </section>
@@ -1781,7 +1782,7 @@
         <article class="card"><b>◎</b><strong>100%</strong><span>Verified</span></article>
         <article class="card"><b>□</b><strong>Monthly</strong><span>Cycle</span></article>
       </section>
-      <section class="mobile-list-title"><h2>Recurring Income</h2><button>≡ Filter</button></section>
+      <section class="mobile-list-title"><h2>Recurring Income</h2><button class="primary compact" data-modal="income">Add income</button></section>
       <section class="income-card-list">
         ${rows.map(mobileIncomeRow).join("")}
       </section>

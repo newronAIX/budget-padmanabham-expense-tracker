@@ -3836,7 +3836,7 @@ summary:focus-visible,
     max-width: 390px;
     margin: 0;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 0;
     padding: 8px 8px max(8px, env(safe-area-inset-bottom));
     background: rgba(249, 249, 244, 0.96);
