@@ -1966,8 +1966,8 @@
         <article class="invite-dark-card">
           <h3>Invite a Family Member</h3>
           <p>Share this code with family members to grant them access to the household ledger.</p>
-          <div class="invite-copy-row"><strong>${escapeHtml(inviteCode.replace("BUDGET-", "PADMA-"))}</strong><button data-copy-invite="${escapeHtml(inviteCode)}">COPY</button></div>
-          <button class="share-invite-button" data-copy-invite="${escapeHtml(inviteCode)}">Share Invite Link</button>
+          <div class="invite-copy-row"><strong>${escapeHtml(inviteCode)}</strong><button data-copy-invite="${escapeHtml(inviteCode)}">COPY</button></div>
+          <button class="share-invite-button" data-copy-invite="${escapeHtml(inviteCode)}">Copy Invite Code</button>
         </article>
         <h2>Owner Controls</h2>
         <div class="card owner-control-list">
@@ -3119,7 +3119,10 @@
   async function joinFamily(form) {
     const data = Object.fromEntries(new FormData(form).entries());
     if (state.demo) throw new Error("Invite joining needs Supabase. Preview mode can create a family locally.");
-    const code = requireText(data.code, "invite code", 32).toUpperCase();
+    // The mobile invite card used to display the code with a PADMA- prefix while
+    // the stored code was BUDGET-, so anyone who typed what they saw was rejected.
+    // The card now shows the real code; this keeps older screenshots working.
+    const code = requireText(data.code, "invite code", 32).toUpperCase().replace(/^PADMA-/, "BUDGET-");
     const person = requireText(data.person || "Family member", "your display name", 80);
     const privacy = requireText(data.privacy, "the family privacy password", 120);
 
