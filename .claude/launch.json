@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "budget",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["budget/scripts/serve_demo.py", "5188"],
+      "port": 5188
+    }
+  ]
+}
