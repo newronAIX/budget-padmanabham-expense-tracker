@@ -1,5 +1,14 @@
 # Dev-only tooling. The app itself is just index.html + app.js + styles.css.
-scripts/
+# Listed file by file rather than as scripts/, because the Vercel build runs
+# scripts/write_config.mjs -- ignoring the whole directory means that file never
+# reaches the builder and the build fails on a missing module.
+scripts/build_ds_previews.mjs
+scripts/build_font.sh
+scripts/capture_screen.mjs
+scripts/run_smoke.py
+scripts/serve_demo.py
+scripts/smoke.mjs
+scripts/visual_parity.py
 tests/
 design-system/
 node_modules/

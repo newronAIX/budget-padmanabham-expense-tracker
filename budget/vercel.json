@@ -1,4 +1,6 @@
 {
+  "buildCommand": "node scripts/write_config.mjs",
+  "outputDirectory": ".",
   "cleanUrls": true,
   "trailingSlash": false,
   "headers": [
