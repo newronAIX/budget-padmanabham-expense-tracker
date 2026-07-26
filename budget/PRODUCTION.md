@@ -1,5 +1,8 @@
 # Production Checklist
 
+Live at https://budget-padmanabham.vercel.app, deployed from `main` by the Vercel
+git integration. Every merge to `main` ships; there is no manual CLI step any more.
+
 ## Supabase
 
 - Run `supabase/schema.sql` against the production project.
