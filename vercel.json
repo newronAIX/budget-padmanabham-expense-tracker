@@ -1,5 +1,4 @@
 {
-  "$comment": "Repo-root config, used when the Vercel project's Root Directory is left at the repository root. If Root Directory is set to 'budget', Vercel reads budget/vercel.json instead and ignores this file. Both are kept so the app builds either way; keep the headers in the two files in sync.",
   "buildCommand": "cd budget && node scripts/write_config.mjs",
   "outputDirectory": "budget",
   "cleanUrls": true,
