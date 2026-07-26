@@ -4647,3 +4647,117 @@ summary:focus-visible,
   padding-top: 0;
   border-top: 0;
 }
+
+/* --- Cadence and lifecycle -------------------------------------------------
+   Status is shown two ways for two jobs: a chip that labels a row you are
+   scanning, and pill buttons that change it. Active rows carry no chip at all,
+   so the eye only stops on the exceptions. */
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  /* justify-self, not align-self: the row body is a grid, where a child
+     stretches across the column unless told otherwise. align-self only moved it
+     vertically and left the chip full width. */
+  justify-self: start;
+  width: fit-content;
+  white-space: nowrap;
+  margin-top: 4px;
+  padding: 0 8px;
+  min-height: 20px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.02em;
+}
+.status-chip.is-repeat {
+  background: var(--bg-subtle);
+  color: var(--primary);
+}
+.status-chip.is-paused {
+  background: #fdf1d6;
+  color: #8a6100;
+}
+.status-chip.is-stopped {
+  background: var(--bg-subtle);
+  color: var(--muted);
+}
+
+.pill-action {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: var(--weight-semibold);
+}
+.pill-action:active {
+  transform: translateY(1px);
+}
+
+/* A paused or stopped row should read as switched off without becoming
+   unreadable -- these are still records people need to check. */
+.income-item:has(.status-chip.is-paused) .item-main strong,
+.income-item:has(.status-chip.is-stopped) .item-main strong,
+.mobile-income-card:has(.status-chip.is-paused) .item-main strong,
+.mobile-income-card:has(.status-chip.is-stopped) .item-main strong {
+  color: var(--muted);
+}
+
+.lifecycle-field {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.lifecycle-field legend {
+  padding: 0;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.lifecycle-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.lifecycle-option {
+  display: block;
+  position: relative;
+}
+.lifecycle-option input {
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+.lifecycle-option span {
+  display: grid;
+  place-items: center;
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: var(--weight-semibold);
+}
+.lifecycle-option input:checked + span {
+  border-color: var(--primary);
+  background: var(--bg-subtle);
+  color: var(--primary);
+}
+.lifecycle-option input:focus-visible + span {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+@media (max-width: 900px) {
+  .pill-action {
+    min-height: 30px;
+    padding: 0 10px;
+  }
+}

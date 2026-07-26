@@ -254,12 +254,14 @@
       ["Urban Company", 1200, "p-lakshmi", "c-exp-6", daysAgo(1), ""],
       ["Monthly groceries", 18450, "p-amma", "c-exp-0", daysAgo(2), ""],
       ["Dining", 12400, "p-arjun", "c-exp-6", daysAgo(3), ""],
-      ["Utilities", 9800, "p-ramesh", "c-exp-4", daysAgo(4), ""],
+      ["Utilities", 9800, "p-ramesh", "c-exp-4", daysAgo(4), "", "MONTHLY", "ACTIVE"],
       ["Medicine", 7600, "p-lakshmi", "c-exp-2", daysAgo(6), ""],
       ["Education", 10590, "p-arjun", "c-exp-3", daysAgo(8), ""],
       ["Household items", 20000, "p-lakshmi", "c-exp-0", daysAgo(14), ""],
-      ["Tuition fee", 12000, "p-arjun", "c-exp-3", lastMonthDay(12), ""]
-    ].map(([title, amount, person_id, category_id, spent_on, note], index) => ({
+      ["Tuition fee", 12000, "p-arjun", "c-exp-3", lastMonthDay(12), "", "QUARTERLY", "ACTIVE"],
+      ["Gym membership", 2200, "p-arjun", "c-exp-6", daysAgo(10), "", "MONTHLY", "PAUSED"],
+      ["Newspaper", 450, "p-amma", "c-exp-0", daysAgo(20), "", "MONTHLY", "STOPPED"]
+    ].map(([title, amount, person_id, category_id, spent_on, note, recurrence, lifecycle], index) => ({
       id: `e-${index}`,
       family_id: family.id,
       title,
@@ -268,14 +270,20 @@
       category_id,
       spent_on,
       note,
+      recurrence: recurrence || "NONE",
+      lifecycle: lifecycle || "ACTIVE",
+      anchor_on: spent_on,
       entered_by: "demo-user",
       created_at: new Date(Date.now() - index * 3600000).toISOString()
     }));
     const incomes = [
-      { id: "i-0", family_id: family.id, title: "Primary Salary", amount: 120000, day_of_month: 1, category_id: "c-inc-0", is_active: true, created_by: "demo-user" },
-      { id: "i-1", family_id: family.id, title: "Rental Income", amount: 45000, day_of_month: 1, category_id: "c-inc-1", is_active: true, created_by: "demo-user" },
-      { id: "i-2", family_id: family.id, title: "Freelance Projects", amount: 15000, day_of_month: 1, category_id: "c-inc-3", is_active: false, created_by: "demo-user" },
-      { id: "i-3", family_id: family.id, title: "FD Dividends", amount: 4500, day_of_month: 1, category_id: "c-inc-2", is_active: true, created_by: "demo-user" }
+      { id: "i-0", family_id: family.id, title: "Primary Salary", amount: 120000, day_of_month: 1, cadence: "MONTHLY", anchor_on: "2026-01-01", lifecycle: "ACTIVE", is_active: true, category_id: "c-inc-0", created_by: "demo-user" },
+      { id: "i-1", family_id: family.id, title: "Rental Income", amount: 45000, day_of_month: 5, cadence: "MONTHLY", anchor_on: "2026-01-05", lifecycle: "ACTIVE", is_active: true, category_id: "c-inc-1", created_by: "demo-user" },
+      { id: "i-2", family_id: family.id, title: "Weekend Tutoring", amount: 2500, day_of_month: 4, cadence: "WEEKLY", anchor_on: "2026-07-04", lifecycle: "ACTIVE", is_active: true, category_id: "c-inc-3", created_by: "demo-user" },
+      { id: "i-3", family_id: family.id, title: "FD Dividends", amount: 4500, day_of_month: 1, cadence: "QUARTERLY", anchor_on: "2026-01-01", lifecycle: "ACTIVE", is_active: true, category_id: "c-inc-2", created_by: "demo-user" },
+      { id: "i-4", family_id: family.id, title: "LIC Maturity", amount: 60000, day_of_month: 20, cadence: "YEARLY", anchor_on: "2026-03-20", lifecycle: "ACTIVE", is_active: true, category_id: "c-inc-2", created_by: "demo-user" },
+      { id: "i-5", family_id: family.id, title: "Freelance Projects", amount: 15000, day_of_month: 12, cadence: "MONTHLY", anchor_on: "2026-02-12", lifecycle: "PAUSED", is_active: false, category_id: "c-inc-3", created_by: "demo-user" },
+      { id: "i-6", family_id: family.id, title: "Old Consulting Retainer", amount: 25000, day_of_month: 1, cadence: "MONTHLY", anchor_on: "2025-06-01", lifecycle: "STOPPED", is_active: false, category_id: "c-inc-3", created_by: "demo-user" }
     ];
     return {
       family,
@@ -584,7 +592,110 @@
   // as active: filters used `!== false` while display used plain truthiness, so an
   // undefined row was counted in the monthly total yet drawn as Paused.
   function isIncomeActive(income) {
-    return income?.is_active !== false;
+    return lifecycleOf(income) === "ACTIVE";
+  }
+
+  // --- Cadence and lifecycle -------------------------------------------------
+  //
+  // Both live inside the encrypted payload, never in a column: hydrate spreads
+  // the decrypted object over the row, so a new field needs no migration and
+  // stays as private as the amount it describes.
+  //
+  // Anything saved before this existed has neither field. Those rows must keep
+  // behaving exactly as they did, so the defaults below reproduce the old
+  // meaning: no cadence is monthly, and the old is_active boolean maps onto the
+  // new three states.
+  const CADENCES = [
+    { value: "WEEKLY", label: "Weekly", short: "Weekly", months: 0 },
+    { value: "MONTHLY", label: "Monthly", short: "Monthly", months: 1 },
+    { value: "QUARTERLY", label: "Every 3 months", short: "3-monthly", months: 3 },
+    { value: "HALF_YEARLY", label: "Every 6 months", short: "6-monthly", months: 6 },
+    { value: "YEARLY", label: "Every year", short: "Yearly", months: 12 }
+  ];
+
+  const LIFECYCLES = [
+    { value: "ACTIVE", label: "Active" },
+    { value: "PAUSED", label: "Paused" },
+    { value: "STOPPED", label: "Stopped" }
+  ];
+
+  // Incomes call it cadence, expenses call it recurrence: an income always
+  // repeats, whereas an expense is a one-off unless it says otherwise, and the
+  // two forms read better with their own word. One accessor serves both.
+  function cadenceOf(item) {
+    const value = String(item?.cadence || item?.recurrence || "").toUpperCase();
+    return CADENCES.some((c) => c.value === value) ? value : "MONTHLY";
+  }
+
+  function cadenceLabel(item) {
+    const value = cadenceOf(item);
+    return CADENCES.find((c) => c.value === value)?.label || "Monthly";
+  }
+
+  function cadenceShort(item) {
+    const value = cadenceOf(item);
+    return CADENCES.find((c) => c.value === value)?.short || "Monthly";
+  }
+
+  // Paused and stopped both stop counting. They differ in intent, and the UI
+  // treats them differently: paused is a temporary hold you expect to undo,
+  // stopped is an ending you keep for the record.
+  function lifecycleOf(item) {
+    const explicit = String(item?.lifecycle || "").toUpperCase();
+    if (LIFECYCLES.some((l) => l.value === explicit)) return explicit;
+    return item?.is_active === false ? "STOPPED" : "ACTIVE";
+  }
+
+  function isCounting(item) {
+    return lifecycleOf(item) === "ACTIVE";
+  }
+
+  function anchorDateOf(item, fallback) {
+    if (isDateKey(item?.anchor_on)) return item.anchor_on;
+    if (isDateKey(item?.spent_on)) return item.spent_on;
+    const day = Math.min(Math.max(Number(item?.day_of_month || 1), 1), 28);
+    const base = fallback || currentMonth();
+    return `${base}-${String(day).padStart(2, "0")}`;
+  }
+
+  function isDateKey(value) {
+    return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+  }
+
+  function monthsBetween(fromKey, toKey) {
+    const [fy, fm] = fromKey.split("-").map(Number);
+    const [ty, tm] = toKey.split("-").map(Number);
+    return (ty - fy) * 12 + (tm - fm);
+  }
+
+  // How many times this item lands in the given month. Weekly is the reason
+  // this returns a count rather than a boolean: a weekly amount arrives four or
+  // five times depending on the month, and averaging it to 4.33 would show a
+  // total the family never actually receives.
+  function occurrencesInMonth(item, key = currentMonth()) {
+    if (!isCounting(item)) return 0;
+    const cadence = cadenceOf(item);
+    const anchor = anchorDateOf(item, key);
+    const anchorMonth = anchor.slice(0, 7);
+    if (monthsBetween(anchorMonth, key) < 0) return 0;   // not started yet
+
+    if (cadence === "WEEKLY") {
+      const weekday = new Date(`${anchor}T00:00:00`).getDay();
+      const [year, month] = key.split("-").map(Number);
+      const days = new Date(year, month, 0).getDate();
+      let count = 0;
+      for (let day = 1; day <= days; day += 1) {
+        if (new Date(year, month - 1, day).getDay() === weekday) count += 1;
+      }
+      return count;
+    }
+
+    const period = CADENCES.find((c) => c.value === cadence)?.months || 1;
+    return monthsBetween(anchorMonth, key) % period === 0 ? 1 : 0;
+  }
+
+  function amountForMonth(item, key = currentMonth()) {
+    return Number(item?.amount || 0) * occurrencesInMonth(item, key);
   }
 
   function monthlyIncome() {
@@ -673,8 +784,31 @@
     return [...map.values()].sort((a, b) => b.total - a.total);
   }
 
-  function incomeForMonth(_key = currentMonth()) {
-    return state.incomes.filter((income) => isIncomeActive(income) && !income.locked).reduce((sum, income) => sum + Number(income.amount || 0), 0);
+  // Now genuinely month-aware. It used to ignore its argument and return the
+  // same figure for every month, which was harmless while every income was
+  // monthly and is wrong the moment one arrives yearly.
+  //
+  // Rows saved before cadence existed anchor to whichever month is being asked
+  // about, so they still count in all of them and no historical total moves.
+  function incomeForMonth(key = currentMonth()) {
+    return state.incomes
+      .filter((income) => !income.locked)
+      .reduce((sum, income) => sum + amountForMonth(income, key), 0);
+  }
+
+  // What the family has committed to per month through recurring expenses.
+  // Deliberately separate from actual spend: marking an expense as repeating
+  // records an intention, it does not invent expense rows nobody entered.
+  function recurringExpenseCommitment(key = currentMonth()) {
+    return recurringExpenses().reduce((sum, expense) => sum + amountForMonth(expense, key), 0);
+  }
+
+  function recurringExpenses() {
+    return state.expenses.filter((expense) => isRecurringExpense(expense) && !expense.locked);
+  }
+
+  function isRecurringExpense(expense) {
+    return Boolean(expense?.recurrence) && expense.recurrence !== "NONE";
   }
 
   function snapshotPayloadForMonth(key) {
@@ -1452,6 +1586,7 @@
               <strong class="expense-title-tag" title="${escapeHtml(expense.title)}">${escapeHtml(expense.title)}</strong>
             </div>
             <span class="expense-meta"><i>${escapeHtml(category)}</i><i>${escapeHtml(person)}</i><i>${activityWhen(expense)}</i></span>
+            ${recurrenceChip(expense)}
             ${expense.note ? `<small>${escapeHtml(expense.note)}</small>` : ""}
           </div>
           <div class="item-side">
@@ -1468,6 +1603,7 @@
         <div class="item-main">
           <strong class="expense-title-tag" title="${escapeHtml(expense.title)}">${escapeHtml(expense.title)}</strong>
           <span class="expense-meta"><i>${escapeHtml(category)}</i><i>${niceDate(expense.spent_on)}</i></span>
+          ${recurrenceChip(expense)}
           ${expense.note ? `<small>${escapeHtml(expense.note)}</small>` : ""}
         </div>
         <div class="item-side">
@@ -1484,8 +1620,15 @@
       <div class="item-actions">
         ${iconAction("edit", expense.id, `Edit ${title}`)}
         ${iconAction("delete", expense.id, `Delete ${title}`)}
+        ${isRecurringExpense(expense) ? lifecycleActions(expense, "expense") : ""}
       </div>
     `;
+  }
+
+  function recurrenceChip(expense) {
+    if (!isRecurringExpense(expense)) return "";
+    const paused = lifecycleOf(expense) !== "ACTIVE";
+    return `<span class="status-chip ${paused ? (lifecycleOf(expense) === "PAUSED" ? "is-paused" : "is-stopped") : "is-repeat"}">↻ ${escapeHtml(cadenceShort(expense))}${paused ? ` · ${lifecycleOf(expense) === "PAUSED" ? "Paused" : "Stopped"}` : ""}</span>`;
   }
 
   function iconAction(action, id, label) {
@@ -1821,7 +1964,8 @@
           <strong>${escapeHtml(income.title)}</strong>
           <!-- Compact row: only label the exceptional state. "Receiving now" on
                every active row wrapped to two lines and said nothing useful. -->
-          <span>${escapeHtml(category)}${isIncomeActive(income) ? "" : " · Paused"}</span>
+          <span>${escapeHtml(category)} · ${escapeHtml(cadenceShort(income))}</span>
+          ${lifecycleChip(income)}
         </div>
         <strong class="mobile-income-amount">${money(income.amount)}</strong>
         ${incomeActions(income)}
@@ -1836,7 +1980,8 @@
         <span class="avatar">${String(income.title).slice(0, 1).toUpperCase()}</span>
         <div class="item-main">
           <strong>${escapeHtml(income.title)}</strong>
-          <span>${escapeHtml(category)} · Arrives day ${escapeHtml(String(income.day_of_month ?? 1))} · ${isIncomeActive(income) ? "Receiving now" : "Paused"}</span>
+          <span>${escapeHtml(category)} · ${escapeHtml(cadenceLabel(income))} · Arrives day ${escapeHtml(String(income.day_of_month ?? 1))}</span>
+          ${lifecycleChip(income)}
         </div>
         <div class="item-side">
           <strong>${money(income.amount)}</strong>
@@ -1855,7 +2000,7 @@
         <button class="icon-action" data-delete-income="${income.id}" aria-label="Delete ${escapeHtml(income.title)}" title="Delete">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 14h10l1-14"></path></svg>
         </button>
-        <button class="switch-action ${isIncomeActive(income) ? "on" : ""}" data-toggle-income="${income.id}" role="switch" aria-checked="${isIncomeActive(income)}" aria-label="${isIncomeActive(income) ? `Stop counting ${escapeHtml(income.title)} — it is no longer arriving` : `Start counting ${escapeHtml(income.title)} again`}"></button>
+        ${lifecycleActions(income, "income")}
       </div>
     `;
   }
@@ -2395,7 +2540,15 @@
             `).join("")}
           </div>
         </fieldset>
-        <label class="recurring-row">Mark as recurring?<input type="checkbox" name="recurring_preview"><span></span></label>
+        <label class="field">Repeats<select class="input" name="recurrence">
+          <option value="NONE" ${!isRecurringExpense(expense) ? "selected" : ""}>Doesn't repeat</option>
+          ${CADENCES.map((c) => `<option value="${c.value}" ${isRecurringExpense(expense) && cadenceOf(expense) === c.value ? "selected" : ""}>${c.label}</option>`).join("")}
+        </select><small>Rent, fees, subscriptions. Repeating records what you are committed to; it does not create expenses for you.</small></label>
+        ${isRecurringExpense(expense) ? lifecycleField(expense, {
+          active: "Counting toward your monthly commitments.",
+          paused: "On hold — stops counting, switch it back on any time.",
+          stopped: "Ended — stops counting and stays for the record."
+        }) : ""}
         <div class="modal-actions">
           ${id ? `<button class="danger" type="button" data-delete-expense="${id}">Delete</button>` : ""}
           <button class="primary" type="submit">Save expense</button>
@@ -2408,6 +2561,50 @@
     return String(value || "").trim().split(/\s+/)[0] || "Person";
   }
 
+  // A segmented radio rather than a dropdown: three options, and the choice
+  // carries consequences worth reading, so all of them stay visible. The hint
+  // under it swaps as you choose, because "Paused" and "Stopped" look
+  // interchangeable until someone tells you the difference.
+  function lifecycleField(item, hints = {}) {
+    const current = item ? lifecycleOf(item) : "ACTIVE";
+    return `
+      <fieldset class="field lifecycle-field"
+        data-hint-active="${escapeHtml(hints.active || "")}"
+        data-hint-paused="${escapeHtml(hints.paused || "")}"
+        data-hint-stopped="${escapeHtml(hints.stopped || "")}">
+        <legend>Status</legend>
+        <div class="lifecycle-options">
+          ${LIFECYCLES.map((l) => `
+            <label class="lifecycle-option">
+              <input type="radio" name="lifecycle" value="${l.value}" ${current === l.value ? "checked" : ""}>
+              <span>${l.label}</span>
+            </label>
+          `).join("")}
+        </div>
+        <small data-lifecycle-hint>${escapeHtml(hints[current.toLowerCase()] || "")}</small>
+      </fieldset>
+    `;
+  }
+
+  function lifecycleChip(item) {
+    const state_ = lifecycleOf(item);
+    if (state_ === "ACTIVE") return "";
+    return `<span class="status-chip ${state_ === "PAUSED" ? "is-paused" : "is-stopped"}">${state_ === "PAUSED" ? "Paused" : "Stopped"}</span>`;
+  }
+
+  // Which controls to offer depends on where the item already is. Showing
+  // Pause on something already stopped is noise.
+  function lifecycleActions(item, kind) {
+    const state_ = lifecycleOf(item);
+    const attr = kind === "income" ? "data-income-lifecycle" : "data-expense-lifecycle";
+    const name = escapeHtml(item.title || "this item");
+    const button = (next, label) =>
+      `<button class="pill-action" ${attr}="${item.id}" data-lifecycle-to="${next}" aria-label="${label} ${name}">${label}</button>`;
+    if (state_ === "ACTIVE") return button("PAUSED", "Pause") + button("STOPPED", "Stop");
+    if (state_ === "PAUSED") return button("ACTIVE", "Resume") + button("STOPPED", "Stop");
+    return button("ACTIVE", "Resume");
+  }
+
   function incomeForm(id) {
     const income = state.incomes.find((item) => item.id === id);
     return `
@@ -2415,8 +2612,15 @@
         <label class="field">Income title<input class="input" name="title" value="${escapeHtml(income?.title || "")}" placeholder="Salary" required></label>
         <label class="field">Amount<input class="input" name="amount" type="number" min="1" step="1" value="${escapeHtml(income?.amount || "")}" required></label>
         <label class="field">Category<select class="input" name="category_id">${activeIncomeCategories().map((c) => `<option value="${c.id}" ${income?.category_id === c.id ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}</select></label>
-        <label class="field">Day of month<input class="input" name="day_of_month" type="number" min="1" max="28" value="${escapeHtml(income?.day_of_month || 1)}"></label>
-        <label class="check"><input type="checkbox" name="is_active" ${income?.is_active === false ? "" : "checked"}> I am still receiving this<small>Untick if this income has stopped, for example a job you left. It stops counting toward your monthly total, and past records stay.</small></label>
+        <label class="field">How often<select class="input" name="cadence">
+          ${CADENCES.map((c) => `<option value="${c.value}" ${cadenceOf(income) === c.value ? "selected" : ""}>${c.label}</option>`).join("")}
+        </select></label>
+        <label class="field">First arrival<input class="input" name="anchor_on" type="date" value="${escapeHtml(anchorDateOf(income, currentMonth()))}"><small>Weekly income repeats on this weekday. Anything longer repeats from this month.</small></label>
+        ${lifecycleField(income, {
+          active: "Arriving — counts toward your monthly total.",
+          paused: "On hold — stops counting, keep it to switch back on later.",
+          stopped: "Ended — stops counting and stays for the record."
+        })}
         <button class="primary wide" type="submit">Save income</button>
       </form>
     `;
@@ -2582,7 +2786,17 @@
     document.querySelectorAll("[data-delete-expense]").forEach((button) => button.addEventListener("click", run(() => deleteExpense(button.dataset.deleteExpense))));
     document.querySelectorAll("[data-edit-income]").forEach((button) => button.addEventListener("click", () => openModal("income", button.dataset.editIncome)));
     document.querySelectorAll("[data-delete-income]").forEach((button) => button.addEventListener("click", run(() => deleteIncome(button.dataset.deleteIncome))));
-    document.querySelectorAll("[data-toggle-income]").forEach((button) => button.addEventListener("click", run(() => toggleIncome(button.dataset.toggleIncome))));
+    document.querySelectorAll("[data-income-lifecycle]").forEach((button) => button.addEventListener("click", run(() => setIncomeLifecycle(button.dataset.incomeLifecycle, button.dataset.lifecycleTo))));
+    document.querySelectorAll("[data-expense-lifecycle]").forEach((button) => button.addEventListener("click", run(() => setExpenseLifecycle(button.dataset.expenseLifecycle, button.dataset.lifecycleTo))));
+    // The hint under the status picker explains what the choice does, so it has
+    // to track the choice rather than whatever was selected when it rendered.
+    document.querySelectorAll(".lifecycle-field").forEach((field) => {
+      field.addEventListener("change", (event) => {
+        if (event.target.name !== "lifecycle") return;
+        const hint = field.querySelector("[data-lifecycle-hint]");
+        if (hint) hint.textContent = field.dataset[`hint${event.target.value.charAt(0)}${event.target.value.slice(1).toLowerCase()}`] || "";
+      });
+    });
     document.querySelectorAll("[data-edit-category]").forEach((button) => button.addEventListener("click", () => openModal("category", button.dataset.editCategory)));
     document.querySelectorAll("[data-delete-category]").forEach((button) => button.addEventListener("click", run(() => deleteCategory(button.dataset.deleteCategory))));
     document.querySelectorAll("[data-edit-person]").forEach((button) => button.addEventListener("click", () => openModal("person", button.dataset.editPerson)));
@@ -3298,6 +3512,13 @@
       person_id: data.person_id,
       category_id: data.category_id || null,
       note: Object.hasOwn(data, "note") ? optionalText(data.note, 500) : existingExpense?.note || null,
+      recurrence: data.recurrence === "NONE" || !data.recurrence ? "NONE" : cadenceOf({ recurrence: data.recurrence }),
+      // The status control only renders once an expense already repeats, so on
+      // the first save there is no field to read and it starts out active.
+      lifecycle: data.recurrence && data.recurrence !== "NONE"
+        ? lifecycleOf({ lifecycle: data.lifecycle || existingExpense?.lifecycle })
+        : "ACTIVE",
+      anchor_on: safeDate(data.spent_on),
       entered_by: state.user.id
     };
     if (!state.people.some((person) => person.id === payload.person_id)) throw new Error("Please choose a family member.");
@@ -3334,6 +3555,43 @@
     await load();
   }
 
+  function expensePayloadFrom(expense, overrides = {}) {
+    return {
+      family_id: state.family.id,
+      title: expense.title,
+      amount: Number(expense.amount || 0),
+      spent_on: safeDate(expense.spent_on),
+      person_id: expense.person_id,
+      category_id: expense.category_id || null,
+      note: expense.note || null,
+      recurrence: isRecurringExpense(expense) ? cadenceOf(expense) : "NONE",
+      lifecycle: lifecycleOf(expense),
+      anchor_on: anchorDateOf(expense, currentMonth()),
+      entered_by: expense.entered_by || state.user.id,
+      ...overrides
+    };
+  }
+
+  async function setExpenseLifecycle(id, next) {
+    const expense = state.expenses.find((item) => item.id === id);
+    if (!expense) return;
+    const lifecycle = lifecycleOf({ lifecycle: next });
+    if (state.demo) {
+      state.expenses = state.expenses.map((item) => item.id === id ? { ...item, lifecycle } : item);
+      writeDemo();
+      render();
+      return;
+    }
+    const encryptedPayload = await encryptedExpensePayload(expensePayloadFrom(expense, { lifecycle }));
+    const { error } = await client.from("budget_expenses").update({
+      encrypted_payload: encryptedPayload,
+      encryption_version: 1
+    }).eq("id", id);
+    if (error) throw error;
+    queueAnalyticsSnapshot(monthKey(expense.spent_on));
+    await load();
+  }
+
   async function deleteExpense(id) {
     const expense = state.expenses.find((item) => item.id === id);
     const label = expense ? `${expense.title} - ${money(expense.amount)}` : "this expense";
@@ -3355,13 +3613,23 @@
   async function saveIncome(form) {
     const id = form.dataset.id;
     const data = Object.fromEntries(new FormData(form).entries());
+    const cadence = cadenceOf({ cadence: data.cadence });
+    const lifecycle = lifecycleOf({ lifecycle: data.lifecycle });
+    const anchorOn = isDateKey(data.anchor_on) ? data.anchor_on : todayKey();
     const payload = {
       family_id: state.family.id,
       title: requireText(data.title, "income title", 120),
       amount: positiveMoney(data.amount, "income amount"),
-      day_of_month: boundedNumber(data.day_of_month || 1, "Day of month", 1, 28),
+      cadence,
+      anchor_on: anchorOn,
+      lifecycle,
+      // Kept in sync with the anchor so anything still reading day_of_month --
+      // older clients, the analytics snapshots -- keeps getting a sane value.
+      // Clamped rather than validated: the 29th onward does not exist in every
+      // month, and refusing the date would be a strange way to say so.
+      day_of_month: Math.min(Math.max(Number(anchorOn.slice(8, 10)) || 1, 1), 28),
       category_id: data.category_id || null,
-      is_active: Boolean(data.is_active),
+      is_active: lifecycle === "ACTIVE",
       created_by: state.user.id
     };
 
@@ -3396,24 +3664,40 @@
     await load();
   }
 
-  async function toggleIncome(id) {
+  // Rebuilds the whole payload from the hydrated row, so fields this function
+  // does not care about survive the write. The previous version listed the
+  // columns it knew by hand, which silently dropped anything added later --
+  // pausing an income would have erased its cadence.
+  function incomePayloadFrom(income, overrides = {}) {
+    const merged = {
+      family_id: state.family.id,
+      title: income.title,
+      amount: Number(income.amount || 0),
+      cadence: cadenceOf(income),
+      anchor_on: anchorDateOf(income, currentMonth()),
+      lifecycle: lifecycleOf(income),
+      day_of_month: Number(income.day_of_month || 1),
+      category_id: income.category_id || null,
+      created_by: income.created_by || state.user.id,
+      ...overrides
+    };
+    merged.is_active = merged.lifecycle === "ACTIVE";
+    return merged;
+  }
+
+  async function setIncomeLifecycle(id, next) {
     const income = state.incomes.find((item) => item.id === id);
     if (!income) return;
+    const lifecycle = lifecycleOf({ lifecycle: next });
     if (state.demo) {
-      state.incomes = state.incomes.map((item) => item.id === id ? { ...item, is_active: !isIncomeActive(item) } : item);
+      state.incomes = state.incomes.map((item) => item.id === id
+        ? { ...item, lifecycle, is_active: lifecycle === "ACTIVE" }
+        : item);
       writeDemo();
       render();
       return;
     }
-    const payload = {
-      family_id: state.family.id,
-      title: income.title,
-      amount: Number(income.amount || 0),
-      day_of_month: Number(income.day_of_month || 1),
-      category_id: income.category_id || null,
-      is_active: !isIncomeActive(income),
-      created_by: income.created_by || state.user.id
-    };
+    const payload = incomePayloadFrom(income, { lifecycle });
     const encryptedPayload = await encryptedIncomePayload(payload);
     const { error } = await client.from("budget_incomes").update({
       title: "Encrypted income",
