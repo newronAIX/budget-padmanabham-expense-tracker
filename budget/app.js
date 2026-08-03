@@ -75,6 +75,7 @@
     busy: false,
     checkingSession: hasSupabase && !previewMode,
     error: "",
+    notice: "",
     demo: previewMode,
     preview: previewMode
   };
@@ -90,6 +91,7 @@
   const analyticsSnapshotMonths = new Set();
   let privacyMigrationRunning = false;
   let viewportWatcherInstalled = false;
+  let noticeTimer = null;
   let tourState = null;
 
   const todayKey = () => {
@@ -149,6 +151,61 @@
 
   function rangeEnd() {
     return state.dateTo || monthEnd(selectedMonth());
+  }
+
+  /* Backdating support.
+
+     Nothing ever blocked a past date -- safeDate takes any valid one and there is
+     no DB constraint. The problem was that a backdated expense then disappeared:
+     the form defaulted to today, the view never followed the saved row, and the
+     dashboard was pinned to the real-world current month. */
+
+  // Date to prefill in the entry form. Within the viewed month, keep today's day
+  // where that makes sense, otherwise fall back to the 1st.
+  /* One password field for all four sites (join, create, unlock, set up).
+
+     A family password is long, shared verbally or over chat, and typed on a
+     phone keyboard -- and getting it wrong on the unlock screen just says the
+     password is incorrect. Being able to check what you typed matters more here
+     than on a normal login. */
+  function passwordField(label, value, options = {}) {
+    const { isNew = false, hint = "" } = options;
+    return `
+      <label class="field">${escapeHtml(label)}
+        <span class="password-wrap">
+          <input class="input" name="privacy" type="password"
+                 ${isNew ? 'minlength="8"' : ""}
+                 autocomplete="${isNew ? "new-password" : "current-password"}"
+                 value="${escapeHtml(value || "")}" required>
+          <button class="password-toggle" type="button" data-toggle-password
+                  aria-label="Show password" aria-pressed="false" title="Show password">
+            ${EYE_ICON}
+          </button>
+        </span>
+        ${hint ? `<small>${hint}</small>` : ""}
+      </label>
+    `;
+  }
+
+  const EYE_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>`;
+  const EYE_OFF_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7c2 0 3.7.7 5.1 1.6M22 12s-3.6 7-10 7c-2 0-3.7-.7-5.1-1.6"></path><path d="M4 4l16 16"></path></svg>`;
+
+  function defaultEntryDate() {
+    const viewing = selectedMonth();
+    if (viewing === currentMonth()) return todayKey();
+    const today = todayKey();
+    const candidate = `${viewing}-${today.slice(8, 10)}`;
+    return candidate <= monthEnd(viewing) ? candidate : monthEnd(viewing);
+  }
+
+  // Point the whole app at the month a date belongs to.
+  function focusMonthOf(dateKey) {
+    const key = monthKey(dateKey);
+    if (!key || key === selectedMonth()) return;
+    state.selectedMonth = key;
+    state.dateFrom = monthStart(key);
+    state.dateTo = monthEnd(key);
+    state.rangeMode = "month";
   }
 
   function expensesForRange(start = rangeStart(), end = rangeEnd()) {
@@ -698,6 +755,66 @@
     return Number(item?.amount || 0) * occurrencesInMonth(item, key);
   }
 
+  /* Occurrence handling for an ARBITRARY date range, not a whole month.
+     Everything above is month-keyed, which is fine while every screen shows one
+     calendar month, but the expenses screen supports a custom From/To range and
+     had no way to state the income for it.
+
+     This works from actual occurrence DATES rather than per-month counts, so a
+     range covering half of March gets only the deposits that fall in that half. */
+  function occurrenceDatesInMonth(item, key) {
+    if (!isCounting(item)) return [];
+    const cadence = cadenceOf(item);
+    const anchor = anchorDateOf(item, key);
+    const anchorMonth = anchor.slice(0, 7);
+    if (monthsBetween(anchorMonth, key) < 0) return [];
+
+    const [year, month] = key.split("-").map(Number);
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const pad = (n) => String(n).padStart(2, "0");
+
+    if (cadence === "WEEKLY") {
+      const weekday = new Date(`${anchor}T00:00:00`).getDay();
+      const dates = [];
+      for (let day = 1; day <= daysInMonth; day += 1) {
+        if (new Date(year, month - 1, day).getDay() === weekday) dates.push(`${key}-${pad(day)}`);
+      }
+      return dates;
+    }
+
+    const period = CADENCES.find((c) => c.value === cadence)?.months || 1;
+    if (monthsBetween(anchorMonth, key) % period !== 0) return [];
+    // Clamp so a 31st anchor still lands in a 30-day month.
+    const day = Math.min(Number(anchor.slice(8, 10)) || 1, daysInMonth);
+    return [`${key}-${pad(day)}`];
+  }
+
+  function monthKeysBetween(start, end) {
+    if (!start || !end || start > end) return [];
+    const keys = [];
+    let key = monthKey(start);
+    const last = monthKey(end);
+    // Bounded so a malformed range cannot spin forever.
+    for (let guard = 0; key <= last && guard < 600; guard += 1) {
+      keys.push(key);
+      key = shiftMonth(key, 1);
+    }
+    return keys;
+  }
+
+  function occurrencesInRange(item, start, end) {
+    return monthKeysBetween(start, end)
+      .flatMap((key) => occurrenceDatesInMonth(item, key))
+      .filter((date) => date >= start && date <= end)
+      .length;
+  }
+
+  function incomeForRange(start = rangeStart(), end = rangeEnd()) {
+    return state.incomes
+      .filter((income) => !income.locked)
+      .reduce((sum, income) => sum + Number(income.amount || 0) * occurrencesInRange(income, start, end), 0);
+  }
+
   function monthlyIncome() {
     return incomeForMonth(currentMonth());
   }
@@ -971,6 +1088,7 @@
         <main class="app">
           ${topbar()}
           ${state.error ? `<div class="error">${escapeHtml(state.error)}</div>` : ""}
+          ${state.notice ? `<div class="notice" role="status">${escapeHtml(state.notice)}</div>` : ""}
           ${needsConfig ? configScreen() : state.checkingSession ? loadingScreen() : needsAuth ? authScreen() : needsSetup ? setupScreen() : appScreen()}
         </main>
       </div>
@@ -1114,7 +1232,7 @@
             <h2>I have a family code</h2>
             <p class="section-subtitle">Enter both and you are in. Nobody needs to approve you.</p>
             <label class="field">Family code<input class="input code-input" name="code" value="${escapeHtml(joinDraft.code || "")}" placeholder="BUDGET-XXXXXXXXXXXX" autocomplete="off" autocapitalize="characters" spellcheck="false" required></label>
-            <label class="field">Family password<input class="input" name="privacy" type="password" autocomplete="current-password" value="${escapeHtml(joinDraft.privacy || "")}" required><small>The same password everyone in your family uses. Ask whoever sent you the code.</small></label>
+            ${passwordField("Family password", joinDraft.privacy, { hint: "The same password everyone in your family uses. Ask whoever sent you the code." })}
             <label class="field">Your name<input class="input" name="person" value="${escapeHtml(joinDraft.person || defaultName)}" required><small>How your spending shows up to the family.</small></label>
             <button class="primary wide" type="submit">Join family</button>
           </form>
@@ -1124,7 +1242,7 @@
             <p class="section-subtitle">Use this if you are the first person setting things up.</p>
             <label class="field">Family name<input class="input" name="family" value="${escapeHtml(createDraft.family || "")}" placeholder="Padmanabham Family" required></label>
             <label class="field">Your name<input class="input" name="person" value="${escapeHtml(createDraft.person || defaultName)}" required></label>
-            <label class="field">Create a family password<input class="input" name="privacy" type="password" minlength="8" autocomplete="new-password" value="${escapeHtml(createDraft.privacy || "")}" required><small>At least 8 characters. This is what scrambles your family's money data before it leaves this device, so nobody else can read it. Share it with your family along with the code. If everyone forgets it, the data cannot be recovered.</small></label>
+            ${passwordField("Create a family password", createDraft.privacy, { isNew: true, hint: "At least 8 characters. This is what scrambles your family's money data before it leaves this device, so nobody else can read it. Share it with your family along with the code. If everyone forgets it, the data cannot be recovered." })}
             <button class="secondary wide" type="submit">Create family</button>
           </form>
         </div>
@@ -1199,7 +1317,7 @@
         <h2>Unlock family ledger</h2>
         <p>Enter the family privacy password to decrypt this family's plan, categories, people, expenses, income, and insights on this device.</p>
         <form data-form="privacy-unlock">
-          <label class="field">Family privacy password<input class="input" name="privacy" type="password" autocomplete="current-password" value="${escapeHtml(draft.privacy || "")}" required></label>
+          ${passwordField("Family privacy password", draft.privacy)}
           <button class="primary wide" type="submit">Unlock family ledger</button>
         </form>
       </section>
@@ -1216,7 +1334,7 @@
         <p>${isOwner ? "Create a family privacy password before entering family data. It encrypts the monthly plan, categories, people, expenses, income, and insights in the browser before saving." : "The person who created this family needs to set the family password before anything can be entered."}</p>
         ${isOwner ? `
           <form data-form="privacy-setup">
-            <label class="field">Family privacy password<input class="input" name="privacy" type="password" minlength="8" autocomplete="new-password" value="${escapeHtml(draft.privacy || "")}" required></label>
+            ${passwordField("Family privacy password", draft.privacy, { isNew: true })}
             <button class="primary wide" type="submit">Turn on encryption</button>
           </form>
         ` : `<button class="secondary wide" data-tab="family">Open family page</button>`}
@@ -1422,6 +1540,8 @@
     const end = rangeEnd();
     const list = sortedExpenses(start, end);
     const total = list.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+    const rangeIncome = incomeForRange(start, end);
+    const rangeSavings = rangeIncome - total;
     const members = totalsBy(list, (e) => e.person_id, (e) => personName(e.person_id), (e) => personColor(e.person_id));
     const categories = totalsBy(list, (e) => e.category_id || "none", (e) => categoryName(e.category_id), (e) => categoryColor(e.category_id));
     const topCategory = categories[0]?.name || "None";
@@ -1465,10 +1585,17 @@
           </div>
         ` : ""}
 
-        <section class="expense-stat-strip" aria-label="Expense summary">
-          ${expenseStatCard("Total spent", money(total))}
-          ${expenseStatCard("Entries", String(list.length))}
-          ${expenseStatCard("Highest cat.", topCategory)}
+        <!-- Income and savings for the SELECTED range, not just the month.
+             Savings keeps its sign: a family that overspends needs to see that,
+             and every other screen clamps it to zero with Math.max(0, ...). -->
+        <section class="expense-stat-strip" aria-label="Range summary">
+          ${expenseStatCard("Income", money(rangeIncome))}
+          ${expenseStatCard("Spent", money(total))}
+          ${expenseStatCard(rangeSavings < 0 ? "Overspent" : "Saved", money(Math.abs(rangeSavings)), rangeSavings < 0 ? "negative" : rangeSavings > 0 ? "positive" : "")}
+        </section>
+        <section class="expense-stat-substrip" aria-label="Expense detail">
+          <span><b>${list.length}</b> ${list.length === 1 ? "entry" : "entries"}</span>
+          <span>Highest: <b>${escapeHtml(topCategory)}</b></span>
         </section>
 
         <div class="expense-filter-row">
@@ -1503,9 +1630,9 @@
     `;
   }
 
-  function expenseStatCard(label, value) {
+  function expenseStatCard(label, value, tone = "") {
     return `
-      <article class="expense-stat-card">
+      <article class="expense-stat-card ${tone}">
         <span>${escapeHtml(label)}</span>
         <strong title="${escapeHtml(value)}">${escapeHtml(value)}</strong>
       </article>
@@ -1678,7 +1805,7 @@
         <section class="dashboard-grid">
           <div class="card panel">
             <h2>Default chart</h2>
-            ${donut(categories)}
+            ${donut(donutRows(categories))}
             ${miniBars(categories)}
           </div>
           <div class="card panel">
@@ -1723,7 +1850,7 @@
     const members = analytics.members;
     const savingsGoal = analytics.totals.savings_goal_amount;
     const savingsProgress = Math.min(100, Math.max(0, Math.round(analytics.totals.savings_progress_percent || 0)));
-    const trendMax = Math.max(...analytics.trend_months.map((row) => row.spend), 0);
+    const breakdown = donutRows(categories);
     return `
       <section class="mobile-insight-metrics">
         <article class="card insight-mini">
@@ -1740,7 +1867,7 @@
       </section>
       <section class="card panel mobile-chart-card">
         <div class="chart-head"><h2>Monthly Trend</h2><span>6 months</span></div>
-        <div class="trend-placeholder"><b>${trendMax ? money(trendMax) : "No history"}</b></div>
+        ${trendChart(analytics.trend_months)}
         <div class="trend-months">
           ${analytics.trend_months.map((row, index) => index === analytics.trend_months.length - 1 ? `<strong>${escapeHtml(row.name)}</strong>` : `<span>${escapeHtml(row.name)}</span>`).join("")}
         </div>
@@ -1748,10 +1875,8 @@
       <section class="card panel mobile-breakdown-card">
         <h2>Category Breakdown</h2>
         <div class="breakdown-layout">
-          <div class="donut stitch-donut"><span>Total<br>${money(analytics.totals.spend)}</span></div>
-          <div class="legend-list">
-            ${categories.slice(0, 3).map((row) => `<div><i style="background:${row.color}"></i><span>${escapeHtml(row.name)}</span><strong>${Math.round(row.percent || 0)}%</strong></div>`).join("") || `<div><span>No category spend</span><strong>0%</strong></div>`}
-          </div>
+          ${donut(breakdown)}
+          ${donutLegend(breakdown)}
         </div>
       </section>
       <section class="card panel mobile-member-card">
@@ -1771,6 +1896,9 @@
     const spend = monthlySpend();
     const income = monthlyIncome();
     const savings = Math.max(income - spend, 0);
+    // The charts are data-driven now, so preview needs the same analytics the
+    // real screen uses rather than the hardcoded figures it carried before.
+    const analytics = analyticsForMonth(currentMonth());
     const categories = totalsBy(monthExpenses(), (e) => e.category_id || "none", (e) => categoryName(e.category_id), (e) => categoryColor(e.category_id));
     const members = totalsBy(monthExpenses(), (e) => e.person_id, (e) => personName(e.person_id), (e) => personColor(e.person_id));
     return `
@@ -1789,16 +1917,16 @@
       </section>
       <section class="card panel mobile-chart-card">
         <div class="chart-head"><h2>Monthly Trend</h2><span>Yearly⌄</span></div>
-        <div class="trend-placeholder"><b>₹1.2L</b></div>
-        <div class="trend-months"><span>MAR</span><span>APR</span><span>MAY</span><span>JUN</span><span>JUL</span><strong>AUG</strong></div>
+        ${trendChart(analytics.trend_months)}
+        <div class="trend-months">
+          ${analytics.trend_months.map((row, index) => index === analytics.trend_months.length - 1 ? `<strong>${escapeHtml(row.name)}</strong>` : `<span>${escapeHtml(row.name)}</span>`).join("")}
+        </div>
       </section>
       <section class="card panel mobile-breakdown-card">
         <h2>Category Breakdown</h2>
         <div class="breakdown-layout">
-          <div class="donut stitch-donut"><span>Total<br>100%</span></div>
-          <div class="legend-list">
-            ${categories.slice(0, 3).map((row, index) => `<div><i style="background:${row.color}"></i><span>${escapeHtml(row.name)}</span><strong>${index === 0 ? "60%" : index === 1 ? "30%" : "10%"}</strong></div>`).join("")}
-          </div>
+          ${donut(donutRows(categories))}
+          ${donutLegend(donutRows(categories))}
         </div>
       </section>
       <section class="card panel mobile-member-card">
@@ -1814,16 +1942,163 @@
     `;
   }
 
-  function donut(rows) {
-    if (!rows.length) return emptyState("No chart yet", "Charts appear after expenses are added.");
-    const total = rows.reduce((sum, row) => sum + row.total, 0);
+  /* --------------------------------------------------------------------------
+     Category breakdown chart.
+
+     The pie and its legend MUST be built from the same array, in the same order.
+     Previously the mobile pie was a hardcoded CSS gradient (a 60/30/10 design
+     mock) sitting beside a legend built from real data, so the slices and the
+     labels described different things entirely.
+     -------------------------------------------------------------------------- */
+
+  /* --------------------------------------------------------------------------
+     Trend chart: income and spending over six months.
+
+     Replaces .trend-placeholder, which was a literal empty 220px box showing a
+     single number. trend_months already carried per-month income and spend.
+
+     Hand-rolled SVG rather than a chart library: the app has no build step and
+     loads only Supabase from a CDN, and the CSP blocks every other origin.
+     -------------------------------------------------------------------------- */
+
+  // A "nice" axis maximum: 1, 2 or 5 x a power of ten, just above the data. Keeps
+  // the gridline labels readable instead of showing values like 137,428.
+  function niceAxisMax(value) {
+    if (!(value > 0)) return 1;
+    const magnitude = 10 ** Math.floor(Math.log10(value));
+    const normalised = value / magnitude;
+    // Finer than the usual 1/2/5 ladder: with only three steps a peak of 2.7L
+    // rounds to 5L and the chart wastes half its height. Halves keep the lines
+    // filling the plot while the labels stay round.
+    const step = [1, 1.5, 2, 2.5, 3, 4, 5, 7.5, 10].find((candidate) => normalised <= candidate) || 10;
+    return step * magnitude;
+  }
+
+  // Compact axis labels: 1.25L, 45K. Indian grouping, matching the currency.
+  // Trailing zeros are trimmed rather than fixed to 1dp, so the midpoint of a
+  // 2.5L axis reads 1.25L instead of being rounded to a wrong-looking 1.3L.
+  function compactMoney(value) {
+    const n = Number(value || 0);
+    const trim = (x) => String(Number(x.toFixed(2)));
+    if (n >= 10000000) return `₹${trim(n / 10000000)}Cr`;
+    if (n >= 100000) return `₹${trim(n / 100000)}L`;
+    if (n >= 1000) return `₹${trim(n / 1000)}K`;
+    return `₹${Math.round(n)}`;
+  }
+
+  function trendChart(months) {
+    const rows = months || [];
+    if (rows.length < 2) return `<div class="trend-empty">Not enough history yet. This fills in as the months pass.</div>`;
+
+    // Scale to the larger of the two series, so neither is clipped and their
+    // relationship stays readable. The old max looked at spend only.
+    const peak = Math.max(...rows.map((row) => Math.max(Number(row.income || 0), Number(row.spend || 0))), 0);
+    const axisMax = niceAxisMax(peak);
+    const width = 320;
+    const height = 150;
+    const padLeft = 4;
+    const padRight = 4;
+    const padTop = 8;
+    const padBottom = 4;
+    const plotW = width - padLeft - padRight;
+    const plotH = height - padTop - padBottom;
+
+    const x = (index) => padLeft + (rows.length === 1 ? plotW / 2 : (index / (rows.length - 1)) * plotW);
+    const y = (value) => padTop + plotH - (Math.min(Number(value || 0), axisMax) / axisMax) * plotH;
+
+    const line = (key) => rows.map((row, index) => `${index ? "L" : "M"}${x(index).toFixed(1)} ${y(row[key]).toFixed(1)}`).join(" ");
+    const dots = (key, cls) => rows.map((row, index) =>
+      `<circle class="${cls}" cx="${x(index).toFixed(1)}" cy="${y(row[key]).toFixed(1)}" r="2.5"></circle>`
+    ).join("");
+
+    // Area under spending, so the gap between the two lines reads at a glance.
+    const spendArea = `M${x(0).toFixed(1)} ${(padTop + plotH).toFixed(1)} ` +
+      rows.map((row, index) => `L${x(index).toFixed(1)} ${y(row.spend).toFixed(1)}`).join(" ") +
+      ` L${x(rows.length - 1).toFixed(1)} ${(padTop + plotH).toFixed(1)} Z`;
+
+    const gridlines = [0, 0.5, 1].map((fraction) => {
+      const gy = padTop + plotH - fraction * plotH;
+      return `<line class="trend-grid" x1="${padLeft}" y1="${gy.toFixed(1)}" x2="${(width - padRight).toFixed(1)}" y2="${gy.toFixed(1)}"></line>`;
+    }).join("");
+
+    return `
+      <div class="trend-chart">
+        <div class="trend-axis" aria-hidden="true">
+          <span>${compactMoney(axisMax)}</span>
+          <span>${compactMoney(axisMax / 2)}</span>
+          <span>₹0</span>
+        </div>
+        <svg class="trend-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img"
+             aria-label="Income and spending over the last ${rows.length} months. Highest value ${money(peak)}.">
+          ${gridlines}
+          <path class="trend-area" d="${spendArea}"></path>
+          <path class="trend-line trend-spend" d="${line("spend")}"></path>
+          <path class="trend-line trend-income" d="${line("income")}"></path>
+          ${dots("spend", "trend-dot trend-spend-dot")}
+          ${dots("income", "trend-dot trend-income-dot")}
+        </svg>
+      </div>
+      <div class="trend-legend">
+        <span class="trend-key trend-key-income">Income</span>
+        <span class="trend-key trend-key-spend">Spent</span>
+      </div>
+    `;
+  }
+
+  const DONUT_SLICES = 5;
+  const DONUT_OTHER_COLOR = "#9aa39b";
+
+  // Top N by spend, with everything else rolled into one "Other" slice, so the
+  // slices always add up to the total the centre label claims.
+  function donutRows(categories, limit = DONUT_SLICES) {
+    const rows = (categories || []).filter((row) => Number(row.total) > 0);
+    if (rows.length <= limit) return rows;
+    const head = rows.slice(0, limit - 1);
+    const tail = rows.slice(limit - 1);
+    return [...head, {
+      key: "other",
+      name: `Other (${tail.length})`,
+      color: DONUT_OTHER_COLOR,
+      total: tail.reduce((sum, row) => sum + Number(row.total || 0), 0),
+      count: tail.reduce((sum, row) => sum + Number(row.count || 0), 0)
+    }];
+  }
+
+  function donut(rows, centreLabel = "Total") {
+    const total = rows.reduce((sum, row) => sum + Number(row.total || 0), 0);
+    // Zero total would make every stop NaN, which invalidates the whole
+    // conic-gradient declaration and renders a blank white circle.
+    if (!rows.length || total <= 0) {
+      return `<div class="donut donut-empty"><span>${escapeHtml(centreLabel)}<br>${money(0)}</span></div>`;
+    }
     let cursor = 0;
-    const stops = rows.map((row) => {
+    const stops = rows.map((row, index) => {
       const start = cursor;
-      cursor += (row.total / total) * 100;
-      return `${row.color} ${start}% ${cursor}%`;
+      // Snap the last stop to 100 so floating point cannot leave a hairline gap.
+      cursor = index === rows.length - 1 ? 100 : cursor + (Number(row.total) / total) * 100;
+      return `${row.color || COLORS[0]} ${start}% ${cursor}%`;
     });
-    return `<div class="donut" style="background:conic-gradient(${stops.join(",")})"><span>Total<br>${money(total)}</span></div>`;
+    return `<div class="donut" style="background:conic-gradient(${stops.join(",")})"><span>${escapeHtml(centreLabel)}<br>${money(total)}</span></div>`;
+  }
+
+  // Legend for the donut above. Percentages are of the charted total, so they
+  // always sum to 100 and match the slice each one sits next to.
+  function donutLegend(rows) {
+    const total = rows.reduce((sum, row) => sum + Number(row.total || 0), 0);
+    if (!rows.length || total <= 0) {
+      return `<div class="legend-list"><div><span>No category spend yet</span><strong>0%</strong></div></div>`;
+    }
+    return `
+      <div class="legend-list">
+        ${rows.map((row) => `
+          <div>
+            <i style="background:${escapeHtml(row.color || COLORS[0])}"></i>
+            <span title="${escapeHtml(row.name)}">${escapeHtml(row.name)}</span>
+            <strong>${Math.round((Number(row.total) / total) * 100)}%</strong>
+          </div>
+        `).join("")}
+      </div>
+    `;
   }
 
   function monthlyHistory() {
@@ -2515,7 +2790,10 @@
 
   function expenseForm(id) {
     const expense = state.expenses.find((item) => item.id === id);
-    const dateValue = expense?.spent_on || todayKey();
+    // Defaults to the month being viewed, not today. Adding an expense while
+    // looking at a past month used to default to today's date, so the row landed
+    // outside the range on screen and appeared to vanish.
+    const dateValue = expense?.spent_on || defaultEntryDate();
     const selectedPersonId = defaultExpensePersonId(expense);
     return `
       <form data-form="expense" data-id="${id || ""}">
@@ -2807,6 +3085,24 @@
     document.querySelectorAll("[data-action='leave-family']").forEach((button) => button.addEventListener("click", run(leaveFamily)));
     document.querySelectorAll("[data-copy-invite]").forEach((button) => button.addEventListener("click", run(copyInviteCode)));
     document.querySelectorAll("[data-action='replay-tour']").forEach((button) => button.addEventListener("click", () => startTour()));
+
+    // Password reveal. Mutates the DOM directly rather than going through
+    // render(), which rebuilds everything and would drop the caret mid-typing.
+    document.querySelectorAll("[data-toggle-password]").forEach((button) => button.addEventListener("click", () => {
+      const input = button.parentElement?.querySelector("input");
+      if (!input) return;
+      const show = input.type === "password";
+      input.type = show ? "text" : "password";
+      button.setAttribute("aria-pressed", String(show));
+      button.setAttribute("aria-label", show ? "Hide password" : "Show password");
+      button.title = show ? "Hide password" : "Show password";
+      button.innerHTML = show ? EYE_OFF_ICON : EYE_ICON;
+      // Keep the caret where it was so tapping the eye mid-entry is not
+      // disruptive; setSelectionRange throws on some input types, hence the try.
+      const caret = input.value.length;
+      input.focus();
+      try { input.setSelectionRange(caret, caret); } catch (_) { /* not supported */ }
+    }));
 
     // Live budget warning on the expense form. Bound to input/change and updated
     // in place -- calling render() here would rebuild the DOM mid-keystroke.
@@ -3527,6 +3823,12 @@
       if (id) state.expenses = state.expenses.map((expense) => expense.id === id ? { ...expense, ...payload } : expense);
       else state.expenses.unshift({ id: crypto.randomUUID(), ...payload, created_at: new Date().toISOString() });
       state.modal = null;
+      // Same follow-the-expense behaviour as the real path, so preview is an
+      // honest rehearsal of what a family will actually see.
+      focusMonthOf(payload.spent_on);
+      if (monthKey(payload.spent_on) !== currentMonth()) {
+        showNotice(`Saved to ${monthLabel(monthKey(payload.spent_on))}. Showing that month now.`);
+      }
       writeDemo();
       render();
       return;
@@ -3552,6 +3854,12 @@
     if (error) throw error;
     queueAnalyticsSnapshot(monthKey(payload.spent_on));
     state.modal = null;
+    // Follow the expense. Saving one dated outside the visible range used to
+    // succeed silently and show nothing, which read as "it did not save".
+    focusMonthOf(payload.spent_on);
+    if (monthKey(payload.spent_on) !== currentMonth()) {
+      showNotice(`Saved to ${monthLabel(monthKey(payload.spent_on))}. Showing that month now.`);
+    }
     await load();
   }
 
@@ -4052,6 +4360,17 @@
         state.busy = false;
       }
     };
+  }
+
+  // Transient confirmation. .notice was styled but nothing ever set one, so a
+  // save that landed outside the visible range gave no feedback at all.
+  function showNotice(message) {
+    state.notice = message;
+    clearTimeout(noticeTimer);
+    noticeTimer = window.setTimeout(() => {
+      state.notice = "";
+      render();
+    }, 6000);
   }
 
   function showError(error) {
