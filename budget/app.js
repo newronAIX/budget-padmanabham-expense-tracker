@@ -7,6 +7,7 @@
   const TERMS_VERSION = "2026-06-21";
   const KEY_CHECK_TEXT = "budget-padmanabham-family-key-v1";
   const KEY_FINGERPRINT_CONTEXT = "budget-join-v1";
+  const DEMO_FAMILY_PASSWORD = "padmanabham-demo-2026";
 
   const config = window.BUDGET_CONFIG || {};
   const params = new URLSearchParams(window.location.search);
@@ -266,6 +267,26 @@
     state.invites = saved?.invites || [];
   }
 
+  // Gives the demo a real family key and a real encrypted password blob, so the
+  // Family tab's password card exercises the genuine encrypt/decrypt path rather
+  // than being faked -- the same mistake the old hardcoded pie chart made.
+  async function seedDemoPrivacy() {
+    if (!state.preview || !state.family) return;
+    try {
+      const salt = randomBase64(16);
+      const key = await deriveFamilyKey(DEMO_FAMILY_PASSWORD, salt);
+      state.familyKey = key;
+      state.privacyLocked = false;
+      state.family = {
+        ...state.family,
+        encryption_salt: salt,
+        encrypted_password: await encryptJson(key, { password: DEMO_FAMILY_PASSWORD })
+      };
+    } catch (_) {
+      // Preview must still render if WebCrypto is unavailable.
+    }
+  }
+
   function seededPreviewData() {
     const family = {
       id: "preview-family",
@@ -369,6 +390,7 @@
   async function init() {
     if (state.demo) {
       seedDemo();
+      await seedDemoPrivacy();
       state.checkingSession = false;
       render();
       return;
@@ -2355,6 +2377,7 @@
             ` : ""}
           </div>
           <p class="muted invite-help">${isOwner ? "Rotate if the old code was shared too widely. Old code stops working." : "You can share the code. Only the family admin can rotate, lock, or unlock joining."}</p>
+          ${familyPasswordCard()}
           ${goalsSummaryCard()}
           <hr>
           <button class="secondary wide" data-action="replay-tour">Show me around again</button>
@@ -2389,6 +2412,7 @@
           <div class="invite-copy-row"><strong>${escapeHtml(inviteCode)}</strong><button data-copy-invite="${escapeHtml(inviteCode)}">COPY</button></div>
           <button class="share-invite-button" data-copy-invite="${escapeHtml(inviteCode)}">Copy Invite Code</button>
         </article>
+        ${familyPasswordCard()}
         <h2>Owner Controls</h2>
         <div class="card owner-control-list">
           <article><span>▣</span><div><strong>Family Currency</strong><small>INR (₹) - Indian Rupee</small></div><b>›</b></article>
@@ -2620,6 +2644,47 @@
     slot.innerHTML = status === "over"
       ? `<span aria-hidden="true">⚠</span><div>This puts ${name} <b>${money(projected - limit)} over</b> its ${money(limit)} limit.</div>`
       : `<span aria-hidden="true">⚠</span><div>${name} would be at <b>${Math.round(limitPercent(projected, limit))}%</b> of its ${money(limit)} limit, leaving ${money(limit - projected)}.</div>`;
+  }
+
+  /* The password cell in the Family tab. Shows dots until explicitly revealed.
+     The plaintext is fetched on demand and written straight into the DOM, never
+     into `state` -- writeDemo serialises state to localStorage. */
+  function familyPasswordCard() {
+    const isOwner = state.membership?.role === "OWNER";
+    const stored = Boolean(state.family?.encrypted_password);
+    const canRead = stored && Boolean(state.familyKey) && !state.privacyLocked;
+
+    if (!canRead) {
+      return `
+        <section class="card password-card">
+          <div class="password-card-head">
+            <div>
+              <span>Family password</span>
+              <strong>Not saved yet</strong>
+            </div>
+          </div>
+          <p class="muted">${isOwner
+            ? "This app never stored your password, so it cannot show you the one you already use. Sign out and back in once, and it will appear here from then on."
+            : "Ask the family admin to turn this on. They need to enter the family password once."}</p>
+        </section>
+      `;
+    }
+
+    return `
+      <section class="card password-card">
+        <div class="password-card-head">
+          <div>
+            <span>Family password</span>
+            <strong class="password-value" data-password-value>••••••••••</strong>
+          </div>
+          <button class="icon-only soft-icon" type="button" data-reveal-password
+                  aria-label="Show family password" aria-pressed="false" title="Show family password">
+            ${EYE_ICON}
+          </button>
+        </div>
+        <p class="muted">Only people already signed in to this family can see it. It hides itself again after a few seconds.</p>
+      </section>
+    `;
   }
 
   // Compact entry point for the Family tab. Replaces the two panels that used to
@@ -3086,6 +3151,39 @@
     document.querySelectorAll("[data-copy-invite]").forEach((button) => button.addEventListener("click", run(copyInviteCode)));
     document.querySelectorAll("[data-action='replay-tour']").forEach((button) => button.addEventListener("click", () => startTour()));
 
+    // Reveal the family password. Decrypted on demand and written straight to
+    // the DOM -- deliberately never through render(), so the plaintext never
+    // reaches `state` (which writeDemo serialises to localStorage).
+    document.querySelectorAll("[data-reveal-password]").forEach((button) => button.addEventListener("click", async () => {
+      const slot = button.closest(".password-card")?.querySelector("[data-password-value]");
+      if (!slot) return;
+      const hide = () => {
+        clearTimeout(revealTimer);
+        revealedPassword = null;
+        slot.textContent = "••••••••••";
+        slot.classList.remove("is-shown");
+        button.setAttribute("aria-pressed", "false");
+        button.setAttribute("aria-label", "Show family password");
+        button.innerHTML = EYE_ICON;
+      };
+      if (revealedPassword) return hide();
+
+      const password = await readRecoveredPassword();
+      if (!password) {
+        showError(new Error("Could not read the family password on this device. Sign out and back in, then try again."));
+        return;
+      }
+      revealedPassword = password;
+      slot.textContent = password;
+      slot.classList.add("is-shown");
+      button.setAttribute("aria-pressed", "true");
+      button.setAttribute("aria-label", "Hide family password");
+      button.innerHTML = EYE_OFF_ICON;
+      // Auto-hide so it is not left on screen on a shared phone.
+      clearTimeout(revealTimer);
+      revealTimer = window.setTimeout(hide, 15000);
+    }));
+
     // Password reveal. Mutates the DOM directly rather than going through
     // render(), which rebuilds everything and would drop the caret mid-typing.
     document.querySelectorAll("[data-toggle-password]").forEach((button) => button.addEventListener("click", () => {
@@ -3148,6 +3246,11 @@
     if (!["create-family", "join-family", "privacy-unlock", "privacy-setup"].includes(name)) return;
     const draft = {};
     form.querySelectorAll("input[name], select[name], textarea[name]").forEach((field) => {
+      // The password is never drafted. This used to write it to sessionStorage
+      // in plaintext, where it sat until the form was submitted successfully --
+      // so typing it and walking away left it readable for the whole session.
+      // Everything else still survives a re-render, which is the point.
+      if (field.name === "privacy") return;
       if (field.type === "checkbox") draft[field.name] = field.checked ? "1" : "";
       else draft[field.name] = field.value;
     });
@@ -3282,6 +3385,54 @@
 
   async function importFamilyKey(rawBase64) {
     return crypto.subtle.importKey("raw", base64ToBytes(rawBase64), { name: "AES-GCM" }, true, ["encrypt", "decrypt"]);
+  }
+
+  /* --------------------------------------------------------------------------
+     Family password recovery.
+
+     The password is put through PBKDF2 to derive the encryption key and is then
+     thrown away -- that is one way, so the app genuinely cannot show you a
+     password you already set. To make "I forgot it but I am still signed in"
+     recoverable, we store the password encrypted UNDER THE FAMILY KEY.
+
+     What that buys and what it does not:
+       * Supabase holds ciphertext only. Decrypting needs the AES key, which is
+         only obtainable by deriving it from the correct password.
+       * Every member already knows this password -- they typed it to get in --
+         so showing it to an unlocked member reveals nothing new to them.
+       * It cannot be backfilled. Existing families must type the password once
+         more before it can ever be shown.
+       * It is NOT real recovery. If everyone forgets and no device holds the
+         key, this blob is locked by the very password it contains.
+
+     The plaintext is deliberately never put in `state` (writeDemo serialises
+     that) and never in localStorage. It lives in a module-level variable, only
+     while it is on screen.
+     -------------------------------------------------------------------------- */
+  let revealedPassword = null;
+  let revealTimer = null;
+
+  // Owner-only: RLS restricts budget_families updates to owner_id = auth.uid().
+  async function storePasswordForRecovery(password, key, familyId = state.family?.id) {
+    if (!client || state.demo || !familyId || !key || !password) return;
+    if (state.membership?.role !== "OWNER") return;
+    try {
+      await client
+        .from("budget_families")
+        .update({ encrypted_password: await encryptJson(key, { password }) })
+        .eq("id", familyId);
+    } catch (_) {
+      // Never block signing in over this -- it is a convenience, not a gate.
+    }
+  }
+
+  async function readRecoveredPassword() {
+    if (!state.familyKey || !state.family?.encrypted_password) return null;
+    try {
+      return (await decryptJson(state.familyKey, state.family.encrypted_password))?.password || null;
+    } catch (_) {
+      return null;
+    }
   }
 
   async function rememberFamilyKey(familyId, key) {
@@ -3568,6 +3719,10 @@
         encryption_check: privacySetup.check,
         // Lets the server verify a joiner's password without ever seeing it.
         key_fingerprint: privacySetup.fingerprint,
+        // Encrypted under the family key so the admin can look it up later.
+        // Set here rather than via storePasswordForRecovery because the
+        // membership row does not exist yet, so the owner check would fail.
+        encrypted_password: await encryptJson(privacySetup.key, { password: privacy }),
         encrypted_payload: await encryptJson(privacySetup.key, {
           name: familyName,
           currency_code: "INR",
@@ -3692,6 +3847,9 @@
     state.familyKey = key;
     state.privacyLocked = false;
     await backfillKeyFingerprint(key);
+    // verifyPrivacyKey already proved this is the right password, so it is safe
+    // to store. This is the only way an existing family can ever enable lookup.
+    if (!state.family.encrypted_password) await storePasswordForRecovery(privacy, key);
     clearFormDraft("privacy-unlock");
     await load();
   }
@@ -3732,7 +3890,12 @@
     }
     const { error } = await client
       .from("budget_families")
-      .update({ encryption_salt: privacySetup.salt, encryption_check: privacySetup.check })
+      .update({
+        encryption_salt: privacySetup.salt,
+        encryption_check: privacySetup.check,
+        key_fingerprint: privacySetup.fingerprint,
+        encrypted_password: await encryptJson(privacySetup.key, { password: privacy })
+      })
       .eq("id", state.family.id);
     if (error) throw error;
     await rememberFamilyKey(state.family.id, privacySetup.key);
