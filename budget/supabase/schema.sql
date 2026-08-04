@@ -25,7 +25,6 @@ create table if not exists public.budget_families (
   encryption_salt text,
   encryption_check text,
   key_fingerprint text,
-  encrypted_password text,
   encrypted_payload text,
   encryption_version int,
   created_at timestamptz not null default now(),
@@ -198,20 +197,6 @@ begin
   end if;
   if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_families' and column_name = 'encryption_version') then
     alter table public.budget_families add column encryption_version int;
-  end if;
-  -- The family password, encrypted UNDER THE FAMILY KEY, so a member who is
-  -- already unlocked can look it up if they forget it.
-  --
-  -- Deliberate design notes:
-  --   * The server only ever sees ciphertext. Reading it requires the AES key,
-  --     which is only obtainable by deriving it from the correct password.
-  --   * It cannot be backfilled for existing families -- PBKDF2 is one way, so
-  --     the password is unrecoverable until someone types it again.
-  --   * It is NOT a substitute for remembering the password: if every member
-  --     forgets and no device holds the key, this blob is locked by the very
-  --     password it contains.
-  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'budget_families' and column_name = 'encrypted_password') then
-    alter table public.budget_families add column encrypted_password text;
   end if;
   -- Proof that a joiner knows the family privacy password, checked server side by
   -- join_budget_family. Holds SHA-256("budget-join-v1" || raw family key), base64.
