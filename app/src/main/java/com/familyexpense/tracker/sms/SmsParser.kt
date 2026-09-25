@@ -151,6 +151,30 @@ object SmsParser {
         Template("generic_deducted", Direction.DEBIT, Instrument.NETBANKING,
             re("""\bAmt Deducted!\s*$AMT\s+from\b""", ), merchantGroup = null),
 
+        // ---- Wallet and BNPL spends -------------------------------------------
+        // Real expenses, but flagged mayDuplicate: the money reaching the wallet
+        // (or settling the BNPL bill) produces its own bank SMS.
+        Template("phonepe_wallet", Direction.DEBIT, Instrument.UPI,
+            re("""You'?ve\s+paid\s+$AMT\s+via\s+PhonePe\s+(?:wallet|Gift Card)\s+for\s+(?<merchant>.+?)\.""")),
+
+        Template("paytm_wallet_paid", Direction.DEBIT, Instrument.UPI,
+            re("""\bPaid\s+$AMT\s+to\s+(?<merchant>.+?)\s+(?:from\s+Paytm\s+Balance|with\s+Paytm)""")),
+
+        Template("paytm_bank_sent", Direction.DEBIT, Instrument.UPI,
+            re("""$AMT\s+sent\s+to\s+(?<merchant>\S+)\s+from\s+(?:PPBL\s+)?a/c""")),
+
+        Template("mobikwik_wallet", Direction.DEBIT, Instrument.UPI,
+            re("""$AMT\s+has\s+been\s+debited\s+from\s+your\s+MobiKwik\s+wallet"""), merchantGroup = null),
+
+        Template("amazonpay_balance", Direction.DEBIT, Instrument.UPI,
+            re("""Payment\s+of\s+$AMT\s+using\s+Apay\s+[Bb]alance\s+(?:is\s+)?successful"""), merchantGroup = null),
+
+        Template("simpl_charged", Direction.DEBIT, Instrument.UPI,
+            re("""$AMT\s+on\s+(?<merchant>.+?)\s+charged\s+via\s+Simpl""")),
+
+        Template("lazypay_purchase", Direction.DEBIT, Instrument.UPI,
+            re("""your\s+payment\s+of\s+$AMT\s+for\s+txn\s+\S+\s+on\s+(?<merchant>.+?)\s+was\s+successful""")),
+
         // ---- Credits ----------------------------------------------------------
         Template("hdfc_credit_alert", Direction.CREDIT, Instrument.UPI,
             re("""$AMT\s+credited\s+to\s+HDFC\s+Bank\s+A/c\s+\S+\s+on\s+\S+\s+from\s+VPA\s+(?<merchant>\S+)""")),
@@ -190,8 +214,13 @@ object SmsParser {
      *        entirely (IndusInd, and HDFC's "Amt Deducted!")
      */
     fun parse(sender: String?, body: String, receivedAtMillis: Long): ParseOutcome {
-        val bank = SmsSenders.bankFor(sender)
+        val (bank, kind) = SmsSenders.identify(sender)
             ?: return ParseOutcome.NotATransaction("unknown_sender")
+
+        // BHIM and friends only ever send collect requests -- a future,
+        // conditional amount that may never be approved. Nothing from them
+        // should ever become a transaction.
+        if (kind == SenderKind.REQUEST_ONLY) return ParseOutcome.NotATransaction("request_only_sender")
 
         // SBI Card sends some alerts with Unicode Math Sans-Serif substituted for
         // ASCII letters. Without NFKC they fail every regex silently.
@@ -218,6 +247,10 @@ object SmsParser {
                     occurredAtMillis = receivedAtMillis,
                     instrument = t.instrument,
                     bank = bank,
+                    senderKind = kind,
+                    // A wallet spend is real, but its top-up was already a bank
+                    // debit; BNPL purchases are settled by a separate bank debit.
+                    mayDuplicate = kind == SenderKind.WALLET || kind == SenderKind.BNPL,
                     fingerprint = fingerprint(sender, body, receivedAtMillis),
                     matchedBy = t.name
                 )

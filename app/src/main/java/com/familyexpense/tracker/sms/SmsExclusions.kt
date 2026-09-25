@@ -48,7 +48,7 @@ object SmsExclusions {
     private val COMPLETED_CREDIT = re("""\b(reversed and credited|credited back|has been credited|refunded|successfully credited)\b""")
 
     /** At least one of these must appear, or it is not a transaction at all. */
-    private val MONEY_VERB = re("""\b(?:debited|credited|spent|withdrawn|withdrawal|deposited|received|sent|transferred|deducted|paid|purchase[sd]?|refunded|reversed)\b|\b(?:dr|cr)\.""")
+    private val MONEY_VERB = re("""\b(?:debited|credited|spent|withdrawn|withdrawal|deposited|received|sent|transferred|deducted|paid|purchase[sd]?|refunded|reversed|charged|settled)\b|\b(?:dr|cr)\.""")
 
     /**
      * @return the name of the rule that excluded it, or null to continue parsing.

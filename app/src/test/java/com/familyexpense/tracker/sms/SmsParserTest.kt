@@ -131,6 +131,60 @@ class SmsParserTest {
     @Test fun unknownSenderIsRejected() = assertRejected("VM-SHOPPY-P",
         "Rs.500 spent at OUR STORE. Thanks for shopping!")
 
+    // ---- wallet / BNPL: real spends, flagged as possible duplicates ----
+
+    /** PhonePe's header is PHONPE -- six characters, no second E. */
+    @Test fun phonePeWalletSpend() {
+        val t = parsed("TX-PHONPE",
+            "You've paid Rs.251 via PhonePe wallet for PhonePe. Not you? Call us on 022-68727374. Remaining balance: Rs.750.")
+        assertEquals(Direction.DEBIT, t.direction)
+        assertEquals(251.0, t.amountRupees, 0.001)
+        assertEquals(SenderKind.WALLET, t.senderKind)
+        assertTrue("wallet spends must warn about the top-up debit", t.mayDuplicate)
+    }
+
+    @Test fun paytmWalletSpend() {
+        val t = parsed("AX-IPAYTM",
+            "Paid Rs. 65 to WinZO from Paytm Balance. Updated Balance: Paytm Wallet- Rs 147.41.")
+        assertEquals(65.0, t.amountRupees, 0.001)
+        assertEquals(SenderKind.WALLET, t.senderKind)
+    }
+
+    /** Simpl sends three messages per purchase; only this one is the expense. */
+    @Test fun simplPurchaseIsFlaggedAsDuplicable() {
+        val t = parsed("JX-SMPLPL", "Rs.180.9 on Zomato charged via Simpl.Not you? Report here: https://1sm.pl/c")
+        assertEquals(180.9, t.amountRupees, 0.001)
+        assertEquals(SenderKind.BNPL, t.senderKind)
+        assertTrue(t.mayDuplicate)
+    }
+
+    /** A bank debit is authoritative and must NOT be flagged. */
+    @Test fun bankDebitIsNotFlaggedAsDuplicable() {
+        val t = parsed("VM-SBIUPI-S",
+            "Dear UPI user A/C X1234 debited by 150.0 on date 05Mar24 trf to SWIGGY Refno 406512345678.")
+        assertEquals(SenderKind.BANK, t.senderKind)
+        assertTrue("a bank debit is the authoritative record", !t.mayDuplicate)
+    }
+
+    // ---- collect requests: future, conditional, may never be approved ----
+
+    @Test fun phonePeCollectRequestIsIgnored() = assertRejected("TX-PHONPE",
+        "Jar - Save daily has requested money from you on PhonePe. Rs.10 will be debited from your account on approving the request - https://phone.pe/4t90vooq")
+
+    @Test fun bhimSendsOnlyRequestsSoNeverBooks() = assertRejected("VK-NPCIBM",
+        "Dlocal has requested money from you on your BHIM app. On approving the request, INR 79.00 will be debited from your account. NPCI")
+
+    @Test fun paytmAutopayFutureNoticeIsIgnored() = assertRejected("AD-PAYTMB",
+        "Automatic payment of Rs.1300 will be deducted from Paytm Payments Bank - 8474 on 2023-01-06 towards Google Play.")
+
+    /** MDKWIK is a finance company, not MobiKwik. Substring matching would map it. */
+    @Test fun lookalikeHeaderIsNotMobikwik() = assertRejected("VM-MDKWIK",
+        "Rs.500.00 has been debited from your wallet. Remaining balance: Rs.0.")
+
+    /** Google Pay sends no SMS at all; anything claiming to be it is not a bank. */
+    @Test fun googlePayHasNoSenderId() = assertRejected("VM-GPAYIN",
+        "Rs.500 paid to MERCHANT via Google Pay UPI.")
+
     // ---- amount parsing ----
     @Test fun amountUnits() {
         assertEquals(15000L, SmsParser.parseAmountToPaise("150.0"))

@@ -19,6 +19,14 @@ data class ParsedTransaction(
     val occurredAtMillis: Long,
     val instrument: Instrument,
     val bank: String,
+    val senderKind: SenderKind,
+    /**
+     * True when the same rupee is very likely to arrive again from another
+     * sender. A BNPL purchase is followed days later by the bank settlement and
+     * the provider's own receipt -- three messages, one expense. The review card
+     * says so rather than the app silently double counting.
+     */
+    val mayDuplicate: Boolean,
     val fingerprint: String,
     /** Which template matched. Kept for debugging and for tuning, never displayed. */
     val matchedBy: String
