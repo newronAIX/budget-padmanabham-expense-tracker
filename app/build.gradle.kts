@@ -63,6 +63,7 @@ android {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
 
     implementation("androidx.core:core-ktx:1.13.1")
