@@ -20,11 +20,18 @@ android {
             useSupportLibrary = true
         }
 
-        val supabaseUrl = project.findProperty("SUPABASE_URL") as? String ?: ""
-        val supabaseAnonKey = project.findProperty("SUPABASE_ANON_KEY") as? String ?: ""
+        // Defaults are the same values budget/config.js ships publicly. The
+        // publishable key is designed to be public -- RLS is the real boundary --
+        // so baking it in means a built APK works without extra setup. Override
+        // in ~/.gradle/gradle.properties to point at a different project.
+        val supabaseUrl = project.findProperty("SUPABASE_URL") as? String
+            ?: "https://bprstbkdwojtznkzqjqe.supabase.co"
+        val supabaseAnonKey = project.findProperty("SUPABASE_ANON_KEY") as? String
+            ?: "sb_publishable_obIYnaOQK4J6Fe1HNQGdSA_lXTuhyFm"
 
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
+        buildConfigField("String", "AUTH_REDIRECT", "\"budgetpadmanabham://auth\"")
     }
 
     buildTypes {

@@ -3,6 +3,22 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+      Read-only access to the SMS inbox, used solely to recognise bank
+      transaction alerts. Message bodies are parsed in memory and never stored,
+      logged or transmitted; only a one-way hash of each reviewed message is
+      kept, so the app cannot reconstruct what any message said.
+
+      RECEIVE_SMS lets a new alert be recognised as it arrives. The app never
+      becomes the default SMS handler and never sends or writes SMS.
+
+      NOTE: these are Play Store restricted permissions. This build is intended
+      for direct distribution to family, which is outside that policy. Listing
+      on Play would require a Permissions Declaration Form and review.
+    -->
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
@@ -15,13 +31,30 @@
 
         <activity
             android:name=".MainActivity"
+            android:launchMode="singleTask"
             android:exported="true"
             android:theme="@style/Theme.FamilyExpenseTracker">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        
+            <!--
+              Where Google sign-in comes back to. The OAuth exchange itself
+              happens on Supabase using the SAME Google client the web app
+              already uses, so there is no Android OAuth client to create and
+              nothing tied to the signing key's SHA-1.
+
+              singleTask + onNewIntent so returning from the browser resumes the
+              existing activity rather than stacking a second copy.
+            -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="budgetpadmanabham" android:host="auth" />
+            </intent-filter>
+</activity>
     </application>
 
 </manifest>
