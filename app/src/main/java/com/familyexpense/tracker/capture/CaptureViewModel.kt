@@ -11,6 +11,7 @@ import com.familyexpense.tracker.backend.LedgerRepository
 import com.familyexpense.tracker.backend.Person
 import com.familyexpense.tracker.backend.SupabaseClient
 import com.familyexpense.tracker.data.FamilyCrypto
+import com.familyexpense.tracker.data.KeyVault
 import com.familyexpense.tracker.sms.Direction
 import com.familyexpense.tracker.sms.DuplicateDetector
 import com.familyexpense.tracker.sms.MerchantRules
@@ -61,7 +62,11 @@ data class UiState(
     val categories: List<Category> = emptyList(),
     val people: List<Person> = emptyList(),
     val lastScanSummary: String? = null,
-    val tab: Tab = Tab.HOME
+    val tab: Tab = Tab.HOME,
+    /** A key is stored on this phone; offer the lock screen instead of the password. */
+    val canUseDeviceLock: Boolean = false,
+    /** This phone has a lock screen, so remembering the key is worth offering. */
+    val canRememberKey: Boolean = false
 )
 
 class CaptureViewModel(app: Application) : AndroidViewModel(app) {
@@ -71,6 +76,7 @@ class CaptureViewModel(app: Application) : AndroidViewModel(app) {
     private val auth = AuthManager(app, api)
     private val seen = SeenStore(app)
     private val inbox = SmsInbox(app)
+    private val vault = KeyVault(app)
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -131,11 +137,43 @@ class CaptureViewModel(app: Application) : AndroidViewModel(app) {
         val fam = api.family(token, membership.familyId)
         encryptionSalt = fam?.encryptionSalt
         encryptionCheck = fam?.encryptionCheck
-        _state.value = _state.value.copy(stage = Stage.LOCKED)
+        _state.value = _state.value.copy(
+            stage = Stage.LOCKED,
+            canUseDeviceLock = vault.rememberedFor() == membership.familyId,
+            canRememberKey = vault.deviceHasLock()
+        )
+    }
+
+    /**
+     * Called once the phone's lock screen has been satisfied. The key comes back
+     * out of the Keystore; if Android has invalidated it -- a new fingerprint, a
+     * removed PIN -- there is nothing to recover and the password screen is the
+     * honest answer.
+     */
+    fun unlockWithDeviceLock() = viewModelScope.launch {
+        val fid = familyId ?: return@launch
+        _state.value = _state.value.copy(busy = true, error = null)
+        val key = vault.recall(fid)
+        if (key == null) {
+            _state.value = _state.value.copy(
+                busy = false,
+                canUseDeviceLock = false,
+                error = "This phone's lock changed, so the saved password was cleared. Please type it once more."
+            )
+            return@launch
+        }
+        familyKey = key
+        _state.value = _state.value.copy(busy = false, stage = Stage.READY)
+        refresh()
+    }
+
+    /** "Type it myself instead" -- does not delete anything, just shows the field. */
+    fun usePasswordInstead() {
+        _state.value = _state.value.copy(canUseDeviceLock = false)
     }
 
     /** Unlock an existing family. Verified against encryption_check before use. */
-    fun unlock(password: String) = viewModelScope.launch {
+    fun unlock(password: String, remember: Boolean = false) = viewModelScope.launch {
         val salt = encryptionSalt
         val check = encryptionCheck
         if (salt == null || check == null) {
@@ -149,7 +187,13 @@ class CaptureViewModel(app: Application) : AndroidViewModel(app) {
             return@launch
         }
         familyKey = key
-        _state.value = _state.value.copy(busy = false, stage = Stage.READY)
+        val fid = familyId
+        val saved = if (remember && fid != null) vault.remember(fid, key) else false
+        _state.value = _state.value.copy(
+            busy = false,
+            stage = Stage.READY,
+            notice = if (saved) "Saved. Next time your fingerprint is enough." else null
+        )
         refresh()
     }
 
@@ -334,6 +378,9 @@ class CaptureViewModel(app: Application) : AndroidViewModel(app) {
 
     fun signOut() = viewModelScope.launch {
         auth.signOut()
+        // Signing out has to mean it. A remembered key left behind would let the
+        // next person through the lock screen read the family's entries.
+        vault.forget()
         accessToken = null; familyKey = null; familyId = null
         _state.value = UiState(stage = Stage.SIGNED_OUT)
     }

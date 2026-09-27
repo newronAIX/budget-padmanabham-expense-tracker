@@ -2,14 +2,19 @@ package com.familyexpense.tracker
 
 import android.content.Intent
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.fragment.app.FragmentActivity
 import com.familyexpense.tracker.capture.CaptureApp
 import com.familyexpense.tracker.capture.CaptureViewModel
 import com.familyexpense.tracker.ui.theme.FamilyExpenseTheme
 
-class MainActivity : ComponentActivity() {
+/**
+ * A FragmentActivity rather than a ComponentActivity: BiometricPrompt hosts
+ * itself in a fragment, and that is what stands between a saved family key and
+ * whoever is holding the phone.
+ */
+class MainActivity : FragmentActivity() {
 
     private val vm: CaptureViewModel by viewModels()
 
@@ -18,7 +23,7 @@ class MainActivity : ComponentActivity() {
         // Cold start via the OAuth redirect.
         vm.onRedirect(intent?.data)
         setContent {
-            FamilyExpenseTheme { CaptureApp(vm) }
+            FamilyExpenseTheme { CaptureApp(vm, this) }
         }
     }
 

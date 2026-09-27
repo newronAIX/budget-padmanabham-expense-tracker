@@ -19,6 +19,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.fragment.app.FragmentActivity
 
 /**
  * Everything the UI can ask for, as plain lambdas.
@@ -30,7 +31,9 @@ import androidx.compose.ui.unit.dp
 class CaptureActions(
     val signIn: () -> Unit = {},
     val join: (String, String, String) -> Unit = { _, _, _ -> },
-    val unlock: (String) -> Unit = {},
+    val unlock: (password: String, remember: Boolean) -> Unit = { _, _ -> },
+    val useDeviceLock: () -> Unit = {},
+    val usePasswordInstead: () -> Unit = {},
     val selectTab: (Tab) -> Unit = {},
     val scan: () -> Unit = {},
     val signOut: () -> Unit = {},
@@ -42,7 +45,7 @@ class CaptureActions(
 )
 
 @Composable
-fun CaptureApp(vm: CaptureViewModel) {
+fun CaptureApp(vm: CaptureViewModel, activity: FragmentActivity) {
     val state by vm.state.collectAsState()
     val snackbar = remember { SnackbarHostState() }
 
@@ -61,11 +64,21 @@ fun CaptureApp(vm: CaptureViewModel) {
         if (msg != null) { snackbar.showSnackbar(msg); vm.clearMessages() }
     }
 
-    val actions = remember(vm) {
+    val actions = remember(vm, activity) {
         CaptureActions(
             signIn = vm::signIn,
             join = vm::join,
             unlock = vm::unlock,
+            // The prompt is the only part that needs an Activity; the ViewModel
+            // stays free of it, and of anything that can only exist on a device.
+            useDeviceLock = {
+                DeviceUnlock.prompt(
+                    activity,
+                    onSuccess = { vm.unlockWithDeviceLock() },
+                    onUsePassword = { vm.usePasswordInstead() }
+                )
+            },
+            usePasswordInstead = vm::usePasswordInstead,
             selectTab = vm::selectTab,
             scan = vm::scanSms,
             signOut = vm::signOut,
@@ -141,7 +154,14 @@ fun CaptureScaffold(
                 Stage.LOADING -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
                 Stage.SIGNED_OUT -> SignInScreen(onSignIn = actions.signIn)
                 Stage.NO_FAMILY -> JoinScreen(state.busy, actions.join)
-                Stage.LOCKED -> UnlockScreen(state.busy, actions.unlock)
+                Stage.LOCKED -> UnlockScreen(
+                    busy = state.busy,
+                    canUseDeviceLock = state.canUseDeviceLock,
+                    canRememberKey = state.canRememberKey,
+                    onUnlock = actions.unlock,
+                    onUseDeviceLock = actions.useDeviceLock,
+                    onUsePasswordInstead = actions.usePasswordInstead
+                )
                 Stage.READY -> when (state.tab) {
                     Tab.HOME -> HomeScreen(state)
                     Tab.REVIEW -> ReviewScreen(state, actions)

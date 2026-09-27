@@ -108,6 +108,9 @@ dependencies {
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:rules:1.6.1")
+    // Drives the lock screen, so the authenticated key round trip can be tested
+    // rather than only described.
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
     val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
@@ -129,6 +132,10 @@ dependencies {
     // rather than a WebView, so the user can see the address bar and the session
     // is not trapped in an in-app view.
     implementation("androidx.browser:browser:1.8.0")
+
+    // The phone's own lock, put in front of the remembered family key. Brings
+    // androidx.fragment, which BiometricPrompt needs the host activity to be.
+    implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("androidx.work:work-runtime-ktx:2.9.1")
 

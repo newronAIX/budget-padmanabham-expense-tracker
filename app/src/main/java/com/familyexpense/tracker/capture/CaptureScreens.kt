@@ -1,5 +1,6 @@
 package com.familyexpense.tracker.capture
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -98,9 +99,24 @@ fun JoinScreen(busy: Boolean, onJoin: (String, String, String) -> Unit) {
 }
 
 @Composable
-fun UnlockScreen(busy: Boolean, onUnlock: (String) -> Unit) {
+fun UnlockScreen(
+    busy: Boolean,
+    /** A key is saved on this phone, so the lock screen can stand in for typing. */
+    canUseDeviceLock: Boolean,
+    /** This phone has a lock screen, so offering to save the key is honest. */
+    canRememberKey: Boolean,
+    onUnlock: (password: String, remember: Boolean) -> Unit,
+    onUseDeviceLock: () -> Unit,
+    onUsePasswordInstead: () -> Unit
+) {
+    if (canUseDeviceLock) {
+        DeviceLockUnlock(busy, onUseDeviceLock, onUsePasswordInstead)
+        return
+    }
+
     var password by remember { mutableStateOf("") }
     var show by remember { mutableStateOf(false) }
+    var remember_ by remember { mutableStateOf(canRememberKey) }
     Column(
         Modifier
             .fillMaxSize()
@@ -123,12 +139,54 @@ fun UnlockScreen(busy: Boolean, onUnlock: (String) -> Unit) {
             visualTransformation = if (show) VisualTransformation.None else PasswordVisualTransformation(),
             trailingIcon = { TextButton(onClick = { show = !show }) { Text(if (show) "Hide" else "Show") } }
         )
+        if (canRememberKey) {
+            Spacer(Modifier.height(8.dp))
+            Row(
+                Modifier.fillMaxWidth().clickable { remember_ = !remember_ },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Checkbox(checked = remember_, onCheckedChange = { remember_ = it })
+                Spacer(Modifier.width(4.dp))
+                Column {
+                    Text("Remember on this phone")
+                    Text(
+                        "Then your fingerprint or phone PIN opens the app instead.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        }
         Spacer(Modifier.height(20.dp))
         Button(
-            onClick = { onUnlock(password) },
+            onClick = { onUnlock(password, remember_) },
             enabled = !busy && password.isNotBlank(),
             modifier = Modifier.fillMaxWidth().height(52.dp)
         ) { Text(if (busy) "Checking…" else "Unlock") }
+    }
+}
+
+@Composable
+private fun DeviceLockUnlock(busy: Boolean, onUseDeviceLock: () -> Unit, onUsePassword: () -> Unit) {
+    Column(
+        Modifier.fillMaxSize().padding(24.dp),
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text("Welcome back", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "Use the fingerprint or PIN that unlocks this phone to open your family's entries.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Spacer(Modifier.height(24.dp))
+        Button(
+            onClick = onUseDeviceLock,
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth().height(52.dp)
+        ) { Text(if (busy) "Opening…" else "Unlock") }
+        Spacer(Modifier.height(8.dp))
+        TextButton(onClick = onUsePassword, modifier = Modifier.fillMaxWidth()) {
+            Text("Type the family password instead")
+        }
     }
 }
 
