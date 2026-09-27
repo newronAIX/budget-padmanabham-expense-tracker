@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.Settings
+import java.io.File
 
 /**
  * Fetches a new APK and hands it to Android's installer.
@@ -44,8 +45,11 @@ class ApkInstaller(private val context: Context) {
 
     /** @return the DownloadManager id, to match against the completion broadcast. */
     fun download(build: LatestBuild): Long {
-        // One fixed name: a phone should never accumulate a folder of half-old
-        // copies of this app.
+        // DownloadManager does not overwrite. Left alone it writes
+        // BudgetPadmanabham-update-1.apk, then -2, and a phone quietly fills up
+        // with 14MB copies of an app it already has.
+        File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), FILE_NAME).delete()
+
         val request = DownloadManager.Request(Uri.parse(build.url))
             .setTitle("Budget Padmanabham ${build.versionName}")
             .setDescription("Downloading the update")
