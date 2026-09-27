@@ -21,6 +21,14 @@
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!--
+      Lets the app hand a downloaded APK to Android's installer, so an update is
+      one tap rather than a hunt through the Downloads folder. It grants nothing
+      by itself: the installer still shows its own confirmation, and on Android 8
+      and later the person must first allow this app in Settings.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <application
         android:allowBackup="true"
         android:icon="@drawable/ic_launcher_foreground"

@@ -37,6 +37,12 @@ android {
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
         buildConfigField("String", "AUTH_REDIRECT", "\"budgetpadmanabham://auth\"")
+
+        // Where the app looks for a newer build of itself. A sideloaded APK has
+        // no store behind it, so the website stands in for one.
+        val siteUrl = project.findProperty("SITE_URL") as? String
+            ?: "https://budget-padmanabham.vercel.app"
+        buildConfigField("String", "SITE_URL", "\"$siteUrl\"")
     }
 
     /**
@@ -105,6 +111,8 @@ android {
 
 dependencies {
     testImplementation("junit:junit:4.13.2")
+    testImplementation("io.ktor:ktor-client-mock:2.3.12")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:rules:1.6.1")

@@ -40,6 +40,12 @@ class SupabaseClient(
         expectSuccess = false
     }
 
+    /**
+     * Shared with the update check, which talks to the website rather than to
+     * Supabase but has no reason to stand up a second connection pool.
+     */
+    val httpClient: HttpClient get() = http
+
     /** The URL to open in a Custom Tab to begin Google sign-in. */
     fun googleSignInUrl(): String =
         "$baseUrl/auth/v1/authorize?provider=google&redirect_to=${BuildConfig.AUTH_REDIRECT}"

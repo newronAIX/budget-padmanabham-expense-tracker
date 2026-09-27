@@ -41,7 +41,9 @@ class CaptureActions(
     val confirm: (Int) -> Unit = {},
     val dismiss: (Int) -> Unit = {},
     val edit: (Int, String, Double, String?) -> Unit = { _, _, _, _ -> },
-    val split: (Int) -> Unit = {}
+    val split: (Int) -> Unit = {},
+    val startUpdate: () -> Unit = {},
+    val dismissUpdate: () -> Unit = {}
 )
 
 @Composable
@@ -86,7 +88,9 @@ fun CaptureApp(vm: CaptureViewModel, activity: FragmentActivity) {
             confirm = vm::confirm,
             dismiss = vm::dismiss,
             edit = vm::editCard,
-            split = vm::splitGroup
+            split = vm::splitGroup,
+            startUpdate = vm::startUpdate,
+            dismissUpdate = vm::dismissUpdate
         )
     }
 
@@ -163,7 +167,7 @@ fun CaptureScaffold(
                     onUsePasswordInstead = actions.usePasswordInstead
                 )
                 Stage.READY -> when (state.tab) {
-                    Tab.HOME -> HomeScreen(state)
+                    Tab.HOME -> HomeScreen(state, actions)
                     Tab.REVIEW -> ReviewScreen(state, actions)
                 }
             }
@@ -172,8 +176,19 @@ fun CaptureScaffold(
 }
 
 @Composable
-private fun HomeScreen(state: UiState) {
+private fun HomeScreen(state: UiState, actions: CaptureActions) {
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        state.update?.let { build ->
+            item {
+                UpdateBanner(
+                    versionName = build.versionName,
+                    notes = build.notes,
+                    stage = state.updateStage,
+                    onUpdate = actions.startUpdate,
+                    onDismiss = actions.dismissUpdate
+                )
+            }
+        }
         item {
             Text(
                 "Recent expenses",

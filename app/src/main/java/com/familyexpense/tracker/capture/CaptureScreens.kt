@@ -321,3 +321,49 @@ private fun DuplicateBanner(
         }
     }
 }
+
+/**
+ * Offered, never imposed. A sideloaded app cannot replace itself silently, and
+ * pretending otherwise would mean a spinner that never finishes -- so this says
+ * plainly what is available and waits to be tapped.
+ */
+@Composable
+fun UpdateBanner(
+    versionName: String,
+    notes: String,
+    stage: UpdateStage,
+    onUpdate: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    ElevatedCard(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+        Column(Modifier.padding(16.dp)) {
+            Text("A newer version is ready", fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                notes.ifBlank { "Version $versionName." },
+                style = MaterialTheme.typography.bodyMedium
+            )
+            if (stage == UpdateStage.NEEDS_PERMISSION) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Android needs your permission first. Turn on \u201cAllow from this source\u201d " +
+                        "in the screen that just opened, then come back and tap Update.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            if (stage == UpdateStage.FAILED) {
+                Spacer(Modifier.height(8.dp))
+                Text("That download did not finish. Tap Update to try again.",
+                    style = MaterialTheme.typography.bodySmall)
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = onUpdate, enabled = stage != UpdateStage.DOWNLOADING) {
+                    Text(if (stage == UpdateStage.DOWNLOADING) "Downloading\u2026" else "Update")
+                }
+                Spacer(Modifier.width(8.dp))
+                TextButton(onClick = onDismiss) { Text("Not now") }
+            }
+        }
+    }
+}

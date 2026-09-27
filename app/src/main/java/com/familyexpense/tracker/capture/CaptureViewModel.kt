@@ -1,6 +1,12 @@
 package com.familyexpense.tracker.capture
 
 import android.app.Application
+import android.app.DownloadManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import androidx.core.content.ContextCompat
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -12,6 +18,9 @@ import com.familyexpense.tracker.backend.Person
 import com.familyexpense.tracker.backend.SupabaseClient
 import com.familyexpense.tracker.data.FamilyCrypto
 import com.familyexpense.tracker.data.KeyVault
+import com.familyexpense.tracker.update.ApkInstaller
+import com.familyexpense.tracker.update.LatestBuild
+import com.familyexpense.tracker.update.UpdateChecker
 import com.familyexpense.tracker.sms.Direction
 import com.familyexpense.tracker.sms.DuplicateDetector
 import com.familyexpense.tracker.sms.MerchantRules
@@ -66,8 +75,20 @@ data class UiState(
     /** A key is stored on this phone; offer the lock screen instead of the password. */
     val canUseDeviceLock: Boolean = false,
     /** This phone has a lock screen, so remembering the key is worth offering. */
-    val canRememberKey: Boolean = false
+    val canRememberKey: Boolean = false,
+    /** Set when the website is advertising a build newer than this one. */
+    val update: LatestBuild? = null,
+    val updateStage: UpdateStage = UpdateStage.OFFERED
 )
+
+/** Where an offered update has got to. Only ever shown inside the update banner. */
+enum class UpdateStage {
+    OFFERED,
+    /** Android 8+ requires a one-off trip to Settings before this app may install. */
+    NEEDS_PERMISSION,
+    DOWNLOADING,
+    FAILED
+}
 
 class CaptureViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -77,6 +98,8 @@ class CaptureViewModel(app: Application) : AndroidViewModel(app) {
     private val seen = SeenStore(app)
     private val inbox = SmsInbox(app)
     private val vault = KeyVault(app)
+    private val updates = UpdateChecker(api.httpClient)
+    private val installer = ApkInstaller(app)
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -366,7 +389,76 @@ class CaptureViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    // ---- Updates ------------------------------------------------------------
+
+    private var updateChecked = false
+    private var downloadWatcher: BroadcastReceiver? = null
+
+    /**
+     * Asked once per app start, and only after the person is actually in. An
+     * update banner over the sign-in screen would be noise on the one screen
+     * that has to be simple.
+     */
+    private fun checkForUpdateOnce() = viewModelScope.launch {
+        if (updateChecked) return@launch
+        updateChecked = true
+        val latest = updates.check() ?: return@launch
+        _state.value = _state.value.copy(update = latest, updateStage = UpdateStage.OFFERED)
+    }
+
+    fun startUpdate() {
+        val build = _state.value.update ?: return
+        // Not a failure, and not something to apologise for -- Android 8 made
+        // this a one-off switch in Settings, and there is no way to ask inline.
+        if (!installer.canInstall()) {
+            _state.value = _state.value.copy(updateStage = UpdateStage.NEEDS_PERMISSION)
+            installer.openInstallPermissionSettings()
+            return
+        }
+        _state.value = _state.value.copy(updateStage = UpdateStage.DOWNLOADING)
+        watchForDownload(installer.download(build))
+    }
+
+    fun dismissUpdate() {
+        _state.value = _state.value.copy(update = null)
+    }
+
+    private fun watchForDownload(id: Long) {
+        unregisterDownloadWatcher()
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                if (intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L) != id) return
+                unregisterDownloadWatcher()
+                // A cancelled or failed download leaves the banner in place, so
+                // the person can simply tap Update again.
+                val started = installer.install(id)
+                _state.value = _state.value.copy(
+                    updateStage = if (started) UpdateStage.OFFERED else UpdateStage.FAILED
+                )
+            }
+        }
+        downloadWatcher = receiver
+        ContextCompat.registerReceiver(
+            getApplication(),
+            receiver,
+            IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
+            // A system broadcast, so it has to be reachable from outside the app.
+            ContextCompat.RECEIVER_EXPORTED
+        )
+    }
+
+    private fun unregisterDownloadWatcher() {
+        downloadWatcher?.let { runCatching { getApplication<Application>().unregisterReceiver(it) } }
+        downloadWatcher = null
+    }
+
+    override fun onCleared() {
+        unregisterDownloadWatcher()
+        super.onCleared()
+    }
+
     fun refresh() = viewModelScope.launch {
+        checkForUpdateOnce()
         val token = accessToken ?: return@launch
         val key = familyKey ?: return@launch
         val expenses = repo.loadExpenses(token, key)
