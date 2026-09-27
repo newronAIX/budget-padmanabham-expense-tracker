@@ -99,6 +99,25 @@ class SupabaseClient(
         else Result.failure(IllegalStateException(res.errorText()))
     }
 
+    /**
+     * Returns the family's KDF salt for a valid, unlocked invite code.
+     *
+     * Since the September fix this returns the salt ONLY. It used to also return
+     * encryption_check, the ciphertext verifier, which let anyone with a code
+     * mount an offline dictionary attack on the family password. Verification
+     * now happens server side inside join_budget_family.
+     */
+    suspend fun inviteSalt(accessToken: String, inviteCode: String): String? {
+        val res = http.post("$baseUrl/rest/v1/rpc/get_budget_invite_security") {
+            auth(accessToken)
+            contentType(ContentType.Application.Json)
+            setBody(buildJsonObject { put("invite_code_input", JsonPrimitive(inviteCode)) })
+        }
+        if (!res.status.isSuccess()) return null
+        val rows = runCatching { json.decodeFromString<List<InviteSecurityRow>>(res.bodyAsText()) }.getOrNull()
+        return rows?.firstOrNull()?.encryptionSalt
+    }
+
     suspend fun joinFamily(
         accessToken: String,
         inviteCode: String,

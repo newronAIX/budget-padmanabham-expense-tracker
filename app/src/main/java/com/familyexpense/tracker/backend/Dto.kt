@@ -103,3 +103,10 @@ data class AuthUser(
     @SerialName("id") val id: String,
     @SerialName("email") val email: String? = null
 )
+
+@Serializable
+data class InviteSecurityRow(
+    @SerialName("family_id") val familyId: String? = null,
+    @SerialName("family_name") val familyName: String? = null,
+    @SerialName("encryption_salt") val encryptionSalt: String? = null
+)

@@ -1,46 +1,34 @@
 package com.familyexpense.tracker
 
-import android.Manifest
-import android.content.pm.PackageManager
-import android.os.Build
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
-import com.familyexpense.tracker.ui.AppRoot
-import com.familyexpense.tracker.ui.AppViewModel
+import com.familyexpense.tracker.capture.CaptureApp
+import com.familyexpense.tracker.capture.CaptureViewModel
 import com.familyexpense.tracker.ui.theme.FamilyExpenseTheme
-import com.familyexpense.tracker.worker.DailyReminderWorker
 
 class MainActivity : ComponentActivity() {
 
-    private val viewModel: AppViewModel by viewModels()
+    private val vm: CaptureViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        requestNotificationPermissionIfNeeded()
-        DailyReminderWorker.schedule(this)
-
+        // Cold start via the OAuth redirect.
+        vm.onRedirect(intent?.data)
         setContent {
-            FamilyExpenseTheme {
-                AppRoot(viewModel = viewModel)
-            }
+            FamilyExpenseTheme { CaptureApp(vm) }
         }
     }
 
-    private fun requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
-
-        val granted = ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.POST_NOTIFICATIONS
-        ) == PackageManager.PERMISSION_GRANTED
-
-        if (!granted) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
-        }
+    /**
+     * The activity is singleTask, so returning from the sign-in browser tab
+     * delivers the redirect here rather than through onCreate.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        vm.onRedirect(intent.data)
     }
 }
