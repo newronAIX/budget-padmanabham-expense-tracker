@@ -86,6 +86,10 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.4")
 
+    // Chrome Custom Tabs: hosts the Supabase/Google sign-in page. A real browser
+    // rather than a WebView, so the user can see the address bar and the session
+    // is not trapped in an in-app view.
+    implementation("androidx.browser:browser:1.8.0")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("androidx.work:work-runtime-ktx:2.9.1")
 
