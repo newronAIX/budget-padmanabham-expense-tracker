@@ -8,14 +8,39 @@ import androidx.compose.foundation.lazy.LazyColumn
 
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Everything the UI can ask for, as plain lambdas.
+ *
+ * Keeping [CaptureScaffold] free of the ViewModel is what lets a UI test drive
+ * the navigation with a made-up [UiState] -- no Supabase session, no family
+ * password, no SMS on the device.
+ */
+class CaptureActions(
+    val signIn: () -> Unit = {},
+    val join: (String, String, String) -> Unit = { _, _, _ -> },
+    val unlock: (String) -> Unit = {},
+    val selectTab: (Tab) -> Unit = {},
+    val scan: () -> Unit = {},
+    val signOut: () -> Unit = {},
+    val askPermission: () -> Unit = {},
+    val confirm: (Int) -> Unit = {},
+    val dismiss: (Int) -> Unit = {},
+    val edit: (Int, String, Double, String?) -> Unit = { _, _, _, _ -> },
+    val split: (Int) -> Unit = {}
+)
+
 @Composable
 fun CaptureApp(vm: CaptureViewModel) {
     val state by vm.state.collectAsState()
@@ -36,15 +61,76 @@ fun CaptureApp(vm: CaptureViewModel) {
         if (msg != null) { snackbar.showSnackbar(msg); vm.clearMessages() }
     }
 
+    val actions = remember(vm) {
+        CaptureActions(
+            signIn = vm::signIn,
+            join = vm::join,
+            unlock = vm::unlock,
+            selectTab = vm::selectTab,
+            scan = vm::scanSms,
+            signOut = vm::signOut,
+            askPermission = { permission.launch(Manifest.permission.READ_SMS) },
+            confirm = vm::confirm,
+            dismiss = vm::dismiss,
+            edit = vm::editCard,
+            split = vm::splitGroup
+        )
+    }
+
+    CaptureScaffold(state, actions, snackbar)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CaptureScaffold(
+    state: UiState,
+    actions: CaptureActions,
+    snackbar: SnackbarHostState = remember { SnackbarHostState() }
+) {
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
+        bottomBar = {
+            if (state.stage == Stage.READY) {
+                NavigationBar {
+                    NavigationBarItem(
+                        selected = state.tab == Tab.HOME,
+                        onClick = { actions.selectTab(Tab.HOME) },
+                        icon = { Icon(Icons.Filled.Home, contentDescription = null) },
+                        label = { Text("Home") }
+                    )
+                    val pending = state.review.size
+                    NavigationBarItem(
+                        // Material3 wraps a navigation item's icon in
+                        // clearAndSetSemantics, so the badge's digits never reach
+                        // a screen reader. Say the count on the item itself.
+                        modifier = if (pending > 0) {
+                            Modifier.semantics { stateDescription = "$pending waiting" }
+                        } else Modifier,
+                        selected = state.tab == Tab.REVIEW,
+                        onClick = { actions.selectTab(Tab.REVIEW) },
+                        icon = {
+                            // The badge is the point: an unreviewed queue should
+                            // be visible from anywhere, not hidden behind a tap.
+                            if (pending > 0) {
+                                BadgedBox(badge = { Badge { Text("$pending") } }) {
+                                    Icon(Icons.Filled.Notifications, contentDescription = null)
+                                }
+                            } else {
+                                Icon(Icons.Filled.Notifications, contentDescription = null)
+                            }
+                        },
+                        label = { Text("To review") }
+                    )
+                }
+            }
+        },
         topBar = {
             if (state.stage == Stage.READY) {
                 TopAppBar(
                     title = { Text("Budget Padmanabham") },
                     actions = {
-                        TextButton(onClick = { vm.scanSms() }) { Text("Check SMS") }
-                        TextButton(onClick = { vm.signOut() }) { Text("Sign out") }
+                        TextButton(onClick = actions.scan) { Text("Check SMS") }
+                        TextButton(onClick = actions.signOut) { Text("Sign out") }
                     }
                 )
             }
@@ -53,19 +139,47 @@ fun CaptureApp(vm: CaptureViewModel) {
         Box(Modifier.padding(pad)) {
             when (state.stage) {
                 Stage.LOADING -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-                Stage.SIGNED_OUT -> SignInScreen(onSignIn = vm::signIn)
-                Stage.NO_FAMILY -> JoinScreen(state.busy, vm::join)
-                Stage.LOCKED -> UnlockScreen(state.busy, vm::unlock)
-                Stage.READY -> ReadyScreen(state, vm, onAskPermission = {
-                    permission.launch(Manifest.permission.READ_SMS)
-                })
+                Stage.SIGNED_OUT -> SignInScreen(onSignIn = actions.signIn)
+                Stage.NO_FAMILY -> JoinScreen(state.busy, actions.join)
+                Stage.LOCKED -> UnlockScreen(state.busy, actions.unlock)
+                Stage.READY -> when (state.tab) {
+                    Tab.HOME -> HomeScreen(state)
+                    Tab.REVIEW -> ReviewScreen(state, actions)
+                }
             }
         }
     }
 }
 
 @Composable
-private fun ReadyScreen(state: UiState, vm: CaptureViewModel, onAskPermission: () -> Unit) {
+private fun HomeScreen(state: UiState) {
+    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        item {
+            Text(
+                "Recent expenses",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 14.dp, bottom = 4.dp)
+            )
+        }
+        if (state.expenses.isEmpty()) {
+            item {
+                Column(Modifier.fillMaxWidth().padding(vertical = 32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("No expenses yet", fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(4.dp))
+                    Text("Tap Check SMS to find payments from your bank.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+        items(state.expenses.take(100)) { e ->
+            ExpenseRowItem(e, state.categories.firstOrNull { it.id == e.categoryId }?.name)
+        }
+        item { Spacer(Modifier.height(24.dp)) }
+    }
+}
+
+@Composable
+private fun ReviewScreen(state: UiState, actions: CaptureActions) {
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
 
         if (state.needsSmsPermission) {
@@ -80,16 +194,29 @@ private fun ReadyScreen(state: UiState, vm: CaptureViewModel, onAskPermission: (
                             style = MaterialTheme.typography.bodyMedium
                         )
                         Spacer(Modifier.height(12.dp))
-                        Button(onClick = onAskPermission) { Text("Allow") }
+                        Button(onClick = actions.askPermission) { Text("Allow") }
                     }
                 }
             }
         }
 
-        if (state.review.isNotEmpty()) {
+        if (state.review.isEmpty()) {
+            item {
+                Column(Modifier.fillMaxWidth().padding(vertical = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Nothing to review", fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        state.lastScanSummary ?: "Tap Check SMS to look for new payments.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    OutlinedButton(onClick = { actions.selectTab(Tab.HOME) }) { Text("Back to expenses") }
+                }
+            }
+        } else {
             item {
                 Text(
-                    "To review (${state.review.size})",
+                    "${state.review.size} to review",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(top = 14.dp, bottom = 4.dp)
@@ -99,36 +226,13 @@ private fun ReadyScreen(state: UiState, vm: CaptureViewModel, onAskPermission: (
                 ReviewCardItem(
                     card = card,
                     categories = state.categories,
-                    onConfirm = { vm.confirm(i) },
-                    onDismiss = { vm.dismiss(i) },
-                    onEdit = { t, a, c -> vm.editCard(i, t, a, c) },
-                    onSplit = { vm.splitGroup(i) }
+                    onConfirm = { actions.confirm(i) },
+                    onDismiss = { actions.dismiss(i) },
+                    onEdit = { t, a, c -> actions.edit(i, t, a, c) },
+                    onSplit = { actions.split(i) }
                 )
             }
-        } else {
-            item {
-                Column(Modifier.fillMaxWidth().padding(vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Nothing to review", fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        state.lastScanSummary ?: "Tap Check SMS to look for new payments.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
         }
-
-        item {
-            Text(
-                "Recent expenses",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 18.dp, bottom = 4.dp)
-            )
-        }
-        items(state.expenses.take(50)) { e ->
-            ExpenseRowItem(e, state.categories.firstOrNull { it.id == e.categoryId }?.name)
-        }
-        item { Spacer(Modifier.height(32.dp)) }
+        item { Spacer(Modifier.height(24.dp)) }
     }
 }

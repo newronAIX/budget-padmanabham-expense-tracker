@@ -12,3 +12,8 @@ __pycache__/
 
 # Vercel CLI link metadata (per-machine)
 .vercel/
+
+# Signing keys never belong in the repo.
+*.jks
+*.keystore
+keystore.properties

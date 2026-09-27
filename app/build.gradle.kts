@@ -13,8 +13,12 @@ android {
         minSdk = 26
         targetSdk = 35
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        versionCode = 1
-        versionName = "1.0"
+
+        // Android refuses to install an APK whose versionCode is not higher than
+        // the installed one, so this MUST go up for every build you hand out.
+        // Override per build with -PversionCode=N -PversionName=1.1 if you like.
+        versionCode = (project.findProperty("versionCode") as? String)?.toInt() ?: 2
+        versionName = (project.findProperty("versionName") as? String) ?: "1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -35,6 +39,31 @@ android {
         buildConfigField("String", "AUTH_REDIRECT", "\"budgetpadmanabham://auth\"")
     }
 
+    /**
+     * One key, forever.
+     *
+     * Android only upgrades an app in place when the new APK carries the same
+     * signature as the installed one. Same key => the install replaces the old
+     * app and KEEPS its data, so the saved Supabase refresh token survives and
+     * nobody signs in again. A different key => the installer refuses outright,
+     * and the only way forward is uninstall-then-install, which wipes the token
+     * and signs the whole family out.
+     *
+     * So the keystore is the thing to back up. Credentials live in
+     * ~/.gradle/gradle.properties, never in this repo.
+     */
+    signingConfigs {
+        val storePath = project.findProperty("BUDGET_RELEASE_STORE_FILE") as? String
+        if (storePath != null && file(storePath).exists()) {
+            create("release") {
+                storeFile = file(storePath)
+                storePassword = project.findProperty("BUDGET_RELEASE_STORE_PASSWORD") as String
+                keyAlias = project.findProperty("BUDGET_RELEASE_KEY_ALIAS") as String
+                keyPassword = project.findProperty("BUDGET_RELEASE_KEY_PASSWORD") as String
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -42,6 +71,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Absent only on a machine without the keystore; the build then
+            // produces an unsigned APK rather than silently using the debug key,
+            // which would be the one signature that cannot be upgraded from.
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 
@@ -76,6 +109,8 @@ dependencies {
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:rules:1.6.1")
     val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
+    androidTestImplementation(composeBom)
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")

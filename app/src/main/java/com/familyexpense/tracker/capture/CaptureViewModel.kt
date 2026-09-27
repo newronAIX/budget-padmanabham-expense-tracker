@@ -46,6 +46,9 @@ data class ReviewCard(
 
 enum class Stage { LOADING, SIGNED_OUT, NO_FAMILY, LOCKED, READY }
 
+/** The two things this app does. Home is the ledger; Review is the SMS queue. */
+enum class Tab { HOME, REVIEW }
+
 data class UiState(
     val stage: Stage = Stage.LOADING,
     val busy: Boolean = false,
@@ -57,7 +60,8 @@ data class UiState(
     val expenses: List<Expense> = emptyList(),
     val categories: List<Category> = emptyList(),
     val people: List<Person> = emptyList(),
-    val lastScanSummary: String? = null
+    val lastScanSummary: String? = null,
+    val tab: Tab = Tab.HOME
 )
 
 class CaptureViewModel(app: Application) : AndroidViewModel(app) {
@@ -214,7 +218,11 @@ class CaptureViewModel(app: Application) : AndroidViewModel(app) {
         _state.value = _state.value.copy(
             busy = false,
             review = cards,
-            lastScanSummary = "Checked ${result.scanned} messages, found ${cards.size} to review."
+            tab = if (cards.isNotEmpty()) Tab.REVIEW else _state.value.tab,
+            lastScanSummary = when {
+                cards.isEmpty() -> "Checked ${result.scanned} messages. Nothing new."
+                else -> "Checked ${result.scanned} messages."
+            }
         )
     }
 
@@ -306,7 +314,12 @@ class CaptureViewModel(app: Application) : AndroidViewModel(app) {
     private fun dismissLocally(index: Int) {
         val list = _state.value.review.toMutableList()
         if (index in list.indices) list.removeAt(index)
-        _state.value = _state.value.copy(review = list)
+        _state.value = _state.value.copy(
+            review = list,
+            // Once the queue empties, say so rather than leaving a count that
+            // contradicts an empty screen.
+            lastScanSummary = if (list.isEmpty()) "All caught up." else _state.value.lastScanSummary
+        )
     }
 
     fun refresh() = viewModelScope.launch {
@@ -323,6 +336,10 @@ class CaptureViewModel(app: Application) : AndroidViewModel(app) {
         auth.signOut()
         accessToken = null; familyKey = null; familyId = null
         _state.value = UiState(stage = Stage.SIGNED_OUT)
+    }
+
+    fun selectTab(tab: Tab) {
+        _state.value = _state.value.copy(tab = tab)
     }
 
     fun clearMessages() {
