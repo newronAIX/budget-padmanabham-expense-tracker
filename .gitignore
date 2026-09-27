@@ -17,3 +17,6 @@ __pycache__/
 *.jks
 *.keystore
 keystore.properties
+
+# Built APKs handed out to the family; rebuildable, not source.
+dist/
