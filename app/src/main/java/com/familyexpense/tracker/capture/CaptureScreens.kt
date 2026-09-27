@@ -1,6 +1,7 @@
 package com.familyexpense.tracker.capture
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -51,7 +52,13 @@ fun JoinScreen(busy: Boolean, onJoin: (String, String, String) -> Unit) {
     var name by remember { mutableStateOf("") }
     var show by remember { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .imePadding()
+            .verticalScroll(rememberScrollState())
+            .padding(24.dp)
+    ) {
         Text("Join your family", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(6.dp))
         Text(
@@ -95,7 +102,11 @@ fun UnlockScreen(busy: Boolean, onUnlock: (String) -> Unit) {
     var password by remember { mutableStateOf("") }
     var show by remember { mutableStateOf(false) }
     Column(
-        Modifier.fillMaxSize().padding(24.dp),
+        Modifier
+            .fillMaxSize()
+            .imePadding()
+            .verticalScroll(rememberScrollState())
+            .padding(24.dp),
         verticalArrangement = Arrangement.Center
     ) {
         Text("Enter your family password", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
