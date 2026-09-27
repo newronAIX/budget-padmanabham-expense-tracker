@@ -155,7 +155,7 @@ object SmsParser {
         // Real expenses, but flagged mayDuplicate: the money reaching the wallet
         // (or settling the BNPL bill) produces its own bank SMS.
         Template("phonepe_wallet", Direction.DEBIT, Instrument.UPI,
-            re("""You'?ve\s+paid\s+$AMT\s+via\s+PhonePe\s+(?:wallet|Gift Card)\s+for\s+(?<merchant>.+?)\.""")),
+            re("""You(?:'?ve|\s+have)\s+paid\s+$AMT\s+via\s+PhonePe\s+(?:wallet|Gift Card)\s+for\s+(?<merchant>.+?)\.""")),
 
         Template("paytm_wallet_paid", Direction.DEBIT, Instrument.UPI,
             re("""\bPaid\s+$AMT\s+to\s+(?<merchant>.+?)\s+(?:from\s+Paytm\s+Balance|with\s+Paytm)""")),

@@ -1,6 +1,7 @@
 package com.familyexpense.tracker.auth
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.datastore.preferences.core.edit
@@ -31,10 +32,12 @@ class AuthManager(private val context: Context, private val api: SupabaseClient)
     private val refreshKey = stringPreferencesKey("refresh_token")
 
     fun launchSignIn() {
-        CustomTabsIntent.Builder()
-            .setShowTitle(true)
-            .build()
-            .launchUrl(context, Uri.parse(api.googleSignInUrl()))
+        val tab = CustomTabsIntent.Builder().setShowTitle(true).build()
+        // FLAG_ACTIVITY_NEW_TASK is required because this runs with the
+        // application context, not an Activity one -- without it Android throws
+        // on the very first tap of the sign-in button.
+        tab.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        tab.launchUrl(context, Uri.parse(api.googleSignInUrl()))
     }
 
     /**

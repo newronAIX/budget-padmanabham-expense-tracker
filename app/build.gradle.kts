@@ -12,6 +12,7 @@ android {
         applicationId = "com.familyexpense.tracker"
         minSdk = 26
         targetSdk = 35
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = 1
         versionName = "1.0"
 
@@ -71,6 +72,9 @@ android {
 
 dependencies {
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test:rules:1.6.1")
     val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
 
     implementation("androidx.core:core-ktx:1.13.1")
