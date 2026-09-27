@@ -101,7 +101,8 @@ private fun ReadyScreen(state: UiState, vm: CaptureViewModel, onAskPermission: (
                     categories = state.categories,
                     onConfirm = { vm.confirm(i) },
                     onDismiss = { vm.dismiss(i) },
-                    onEdit = { t, a, c -> vm.editCard(i, t, a, c) }
+                    onEdit = { t, a, c -> vm.editCard(i, t, a, c) },
+                    onSplit = { vm.splitGroup(i) }
                 )
             }
         } else {

@@ -12,6 +12,7 @@ import com.familyexpense.tracker.backend.Person
 import com.familyexpense.tracker.backend.SupabaseClient
 import com.familyexpense.tracker.data.FamilyCrypto
 import com.familyexpense.tracker.sms.Direction
+import com.familyexpense.tracker.sms.DuplicateDetector
 import com.familyexpense.tracker.sms.MerchantRules
 import com.familyexpense.tracker.sms.ParsedTransaction
 import com.familyexpense.tracker.sms.SeenStore
@@ -30,6 +31,11 @@ import javax.crypto.SecretKey
 /** One detected transaction awaiting the user's yes / edit / no. */
 data class ReviewCard(
     val txn: ParsedTransaction,
+    /** UNIQUE, POSSIBLE (ask), or LIKELY (collapsed by default). */
+    val duplicateVerdict: DuplicateDetector.Verdict = DuplicateDetector.Verdict.UNIQUE,
+    val duplicateReason: String = "",
+    /** Messages folded into this one; skipped together when it is confirmed. */
+    val foldedFingerprints: List<String> = emptyList(),
     val title: String,
     val amount: Double,
     val categoryId: String?,
@@ -185,10 +191,17 @@ class CaptureViewModel(app: Application) : AndroidViewModel(app) {
         val result = withContext(Dispatchers.IO) {
             inbox.scan(SmsInbox.defaultSince(System.currentTimeMillis()), already)
         }
-        val cards = result.transactions
-            // Credits are income, not spending; this app only captures expenses.
-            .filter { it.direction == Direction.DEBIT }
-            .map { toCard(it) }
+        // Collapse repeats of one payment before showing anything. A wallet
+        // spend and the bank settling it are one rupee, not two.
+        val cards = DuplicateDetector
+            .group(result.transactions.filter { it.direction == Direction.DEBIT })
+            .map { g ->
+                toCard(g.primary).copy(
+                    duplicateVerdict = g.verdict,
+                    duplicateReason = g.reason,
+                    foldedFingerprints = g.duplicates.map { it.fingerprint }
+                )
+            }
         _state.value = _state.value.copy(
             busy = false,
             review = cards,
@@ -244,7 +257,7 @@ class CaptureViewModel(app: Application) : AndroidViewModel(app) {
                 if (card.categoryName != null && card.txn.merchant != null) {
                     MerchantRules.learn(card.txn.merchant, card.categoryName)
                 }
-                seen.markSeen(listOf(card.txn.fingerprint))
+                seen.markSeen(listOf(card.txn.fingerprint) + card.foldedFingerprints)
                 dismissLocally(index)
                 _state.value = _state.value.copy(busy = false, notice = "Added ${card.title}.")
                 refresh()
@@ -256,8 +269,29 @@ class CaptureViewModel(app: Application) : AndroidViewModel(app) {
     /** No. Never ask about this message again, but nothing is written. */
     fun dismiss(index: Int) = viewModelScope.launch {
         val card = _state.value.review.getOrNull(index) ?: return@launch
-        seen.markSeen(listOf(card.txn.fingerprint))
+        seen.markSeen(listOf(card.txn.fingerprint) + card.foldedFingerprints)
         dismissLocally(index)
+    }
+
+    /**
+     * "No, these are separate." Un-folds the group so each message is reviewed
+     * on its own -- the escape hatch for when the guess was wrong.
+     */
+    fun splitGroup(index: Int) = viewModelScope.launch {
+        val card = _state.value.review.getOrNull(index) ?: return@launch
+        if (card.foldedFingerprints.isEmpty()) return@launch
+        val already = seen.all()
+        val rescan = withContext(Dispatchers.IO) {
+            inbox.scan(SmsInbox.defaultSince(System.currentTimeMillis()), already)
+        }
+        val wanted = (card.foldedFingerprints + card.txn.fingerprint).toSet()
+        val separated = rescan.transactions.filter { it.fingerprint in wanted }.map { toCard(it) }
+        val list = _state.value.review.toMutableList()
+        if (index in list.indices) {
+            list.removeAt(index)
+            list.addAll(index, separated)
+        }
+        _state.value = _state.value.copy(review = list, notice = "Split into ${separated.size} separate entries.")
     }
 
     private fun dismissLocally(index: Int) {

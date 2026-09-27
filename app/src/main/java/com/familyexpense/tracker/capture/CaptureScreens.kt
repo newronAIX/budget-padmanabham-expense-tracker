@@ -127,7 +127,8 @@ fun ReviewCardItem(
     categories: List<com.familyexpense.tracker.backend.Category>,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
-    onEdit: (String, Double, String?) -> Unit
+    onEdit: (String, Double, String?) -> Unit,
+    onSplit: () -> Unit
 ) {
     var editing by remember { mutableStateOf(false) }
     var title by remember(card) { mutableStateOf(card.title) }
@@ -154,15 +155,36 @@ fun ReviewCardItem(
             Spacer(Modifier.height(6.dp))
             Text(card.spentOn, style = MaterialTheme.typography.bodySmall)
 
-            // A wallet or BNPL spend is settled again by the bank, so the same
-            // rupee can arrive twice. Say so rather than silently double count.
-            if (card.txn.mayDuplicate) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "Your bank may send a separate message for this same payment. Add it once only.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error
-                )
+            // Repeats of one payment. LIKELY is already folded together; POSSIBLE
+            // is only flagged, because at that distance it is genuinely unclear
+            // and quietly merging two real payments is the worse mistake.
+            when (card.duplicateVerdict) {
+                com.familyexpense.tracker.sms.DuplicateDetector.Verdict.LIKELY -> {
+                    Spacer(Modifier.height(8.dp))
+                    DuplicateBanner(
+                        label = "Counted once",
+                        detail = card.duplicateReason,
+                        container = MaterialTheme.colorScheme.secondaryContainer,
+                        onSplit = onSplit
+                    )
+                }
+                com.familyexpense.tracker.sms.DuplicateDetector.Verdict.POSSIBLE -> {
+                    Spacer(Modifier.height(8.dp))
+                    DuplicateBanner(
+                        label = "Possible repeat",
+                        detail = card.duplicateReason,
+                        container = MaterialTheme.colorScheme.errorContainer,
+                        onSplit = onSplit
+                    )
+                }
+                else -> if (card.txn.mayDuplicate) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Your bank may send a separate message for this same payment. Add it once only.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
             }
 
             Spacer(Modifier.height(10.dp))
@@ -208,4 +230,25 @@ fun ExpenseRowItem(e: Expense, categoryName: String?) {
         trailingContent = { Text(money(e.amount), fontWeight = FontWeight.Bold) }
     )
     HorizontalDivider()
+}
+
+/** Explains a fold, and offers to undo it. */
+@Composable
+private fun DuplicateBanner(
+    label: String,
+    detail: String,
+    container: androidx.compose.ui.graphics.Color,
+    onSplit: () -> Unit
+) {
+    Surface(color = container, shape = MaterialTheme.shapes.small) {
+        Column(Modifier.padding(10.dp)) {
+            Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            if (detail.isNotBlank()) {
+                Text(detail, style = MaterialTheme.typography.bodySmall)
+            }
+            TextButton(onClick = onSplit, contentPadding = PaddingValues(0.dp)) {
+                Text("No, these are separate")
+            }
+        }
+    }
 }
