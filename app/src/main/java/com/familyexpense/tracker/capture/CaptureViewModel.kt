@@ -106,8 +106,17 @@ class CaptureViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun afterSignIn() {
         val token = accessToken ?: return
         val user = api.currentUser(token)
-        userId = user?.id
-        _state.value = _state.value.copy(email = user?.email)
+        // A token that cannot identify a user is not a session. Without this the
+        // app fell through to the "join your family" screen, which is a baffling
+        // thing to show someone whose session simply expired.
+        if (user == null) {
+            auth.signOut()
+            accessToken = null
+            _state.value = _state.value.copy(stage = Stage.SIGNED_OUT, error = "Please sign in again.")
+            return
+        }
+        userId = user.id
+        _state.value = _state.value.copy(email = user.email)
 
         val membership = api.membership(token)
         if (membership == null) {
